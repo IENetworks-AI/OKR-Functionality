@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, Settings, BookOpen, DollarSign, Clock, BarChart3, Target, Calendar, Users, Download, Plus } from "lucide-react";
 import { OKRModal } from "./okr/OKRModal";
 import { ChatBot } from "./chat/ChatBot";
+import { PlanningDashboard } from "./PlanningDashboard";
+import { ReportingDashboard } from "./ReportingDashboard";
 
 interface SidebarItem {
   icon: any;
@@ -100,30 +102,19 @@ export function Layout() {
     );
   };
 
-  return (
-    <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
-      <div className="w-64 bg-card border-r border-border p-4 space-y-6">
-        {/* Logo */}
-        <div className="flex items-center gap-2">
-          <img 
-            src="/lovable-uploads/2d567e40-963a-4be7-aacd-f6669ccd6bdf.png" 
-            alt="Selam Logo" 
-            className="w-8 h-8 rounded-lg"
-          />
-          <span className="font-semibold">SelamNew Workspace</span>
+  const renderContent = () => {
+    if (activeItem === "Planning and Reporting") {
+      return (
+        <div className="flex">
+          <PlanningDashboard />
+          {/* <ReportingDashboard /> */}
         </div>
+      );
+    }
 
-        {/* Navigation */}
-        <nav className="space-y-2">
-          {sidebarItems.map((item) => (
-            <SidebarItemComponent key={item.label} item={item} />
-          ))}
-        </nav>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1">
+    // Default OKR content
+    return (
+      <>
         {/* Header */}
         <div className="bg-card border-b border-border px-6 py-4">
           <div className="flex items-center justify-between">
@@ -215,6 +206,35 @@ export function Layout() {
             </div>
           </div>
         </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-background flex">
+      {/* Sidebar */}
+      <div className="w-64 bg-card border-r border-border p-4 space-y-6">
+        {/* Logo */}
+        <div className="flex items-center gap-2">
+          <img 
+            src="/lovable-uploads/2d567e40-963a-4be7-aacd-f6669ccd6bdf.png" 
+            alt="Selam Logo" 
+            className="w-8 h-8 rounded-lg"
+          />
+          <span className="font-semibold">SelamNew Workspace</span>
+        </div>
+
+        {/* Navigation */}
+        <nav className="space-y-2">
+          {sidebarItems.map((item) => (
+            <SidebarItemComponent key={item.label} item={item} />
+          ))}
+        </nav>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1">
+        {renderContent()}
       </div>
 
       {/* OKR Modal */}
