@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { X, Send } from "lucide-react";
+import { askOkrModel } from "@/lib/ai";
 // Using placeholder for logo since upload failed
 const salamLogo = "/lovable-uploads/2d567e40-963a-4be7-aacd-f6669ccd6bdf.png";
 
@@ -10,23 +11,38 @@ export function ChatBot() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<{ text: string; isUser: boolean }[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
     
     const userMessage = { text: inputValue, isUser: true };
     setMessages(prev => [...prev, userMessage]);
-    
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse = { 
-        text: "Thank you for your message! I'm here to help you with any questions about your OKRs, objectives, or the platform.", 
-        isUser: false 
-      };
-      setMessages(prev => [...prev, aiResponse]);
-    }, 1000);
-    
     setInputValue("");
+    setIsLoading(true);
+
+    // Use Gemini via askOkrModel
+    try {
+      const prompt = `You are Selam AI, a helpful assistant for OKRs, objectives, and the platform. Respond concisely and accurately to: ${inputValue}`;
+      const context = { previousMessages: messages.map(m => m.text) }; // Maintain context
+      const { suggestion, error } = await askOkrModel({
+        prompt,
+        context,
+        params: { temperature: 0.7, maxOutputTokens: 500 },
+      });
+
+      if (error) {
+        setMessages(prev => [...prev, { text: `Error: ${error}`, isUser: false }]);
+      } else if (suggestion) {
+        setMessages(prev => [...prev, { text: suggestion, isUser: false }]);
+      } else {
+        setMessages(prev => [...prev, { text: "Sorry, I couldn't generate a response.", isUser: false }]);
+      }
+    } catch (err) {
+      setMessages(prev => [...prev, { text: "An error occurred. Please try again.", isUser: false }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -92,6 +108,11 @@ export function ChatBot() {
                     <p className="text-sm">{message.text}</p>
                   </div>
                 ))}
+                {isLoading && (
+                  <div className="p-2 rounded-lg max-w-[80%] bg-muted mr-auto">
+                    <p className="text-sm">Thinking...</p>
+                  </div>
+                )}
               </div>
             )}
             
@@ -102,11 +123,13 @@ export function ChatBot() {
                 onKeyPress={handleKeyPress}
                 placeholder="Type your message..."
                 className="flex-1"
+                disabled={isLoading}
               />
               <Button 
                 onClick={handleSendMessage} 
                 size="sm"
                 className="px-3"
+                disabled={isLoading}
               >
                 <Send className="w-4 h-4" />
               </Button>

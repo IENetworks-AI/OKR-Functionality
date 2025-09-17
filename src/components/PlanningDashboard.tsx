@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Target, Plus, User, MoreVertical, Circle, CheckCircle } from "lucide-react";
+import { Target, Plus, User, MoreVertical, Circle, CheckCircle, Edit2, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,7 +11,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { CreatePlanModal } from "./CreatePlanModal";
 import { ReportingDashboard } from "./ReportingDashboard";
-import { askOkrModel } from "@/lib/ai";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -165,9 +166,9 @@ export function PlanningDashboard() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(employees[0].id);
   const [selectedKeyResultId, setSelectedKeyResultId] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [isAsking, setIsAsking] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState<string>("");
   const [plans, setPlans] = useState<Record<string, Plan[]>>(initialPlans);
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
 
   const employeeKRs = keyResults.filter((kr) => kr.owner.id === selectedEmployeeId);
 
@@ -179,50 +180,11 @@ export function PlanningDashboard() {
     (plan) => keyResults.find((kr) => kr.id === plan.keyResultId)?.owner.id === selectedEmployeeId
   ) || [];
 
-  const selectedKR = keyResults.find((kr) => kr.id === selectedKeyResultId);
-
-  async function askForPlanSuggestion() {
-    if (!selectedKR) return;
-    setIsAsking(true);
-    setAiSuggestion("");
-    try {
-      const prompt = `Provide a concise ${activeTab.toLowerCase()} plan suggestion for the following Key Result. Return bullet points with measurable tasks.\n\nObjective: ${selectedKR.objective}\nKey Result: ${selectedKR.title}\nPlan Type: ${activeTab}`;
-      const { suggestion, error } = await askOkrModel({
-        prompt,
-        context: {
-          source: "planning",
-          krId: selectedKR.id,
-          planType: activeTab,
-        },
-        params: { temperature: 0.3 },
-      });
-      if (error) {
-        setAiSuggestion(`Error: ${error}. Please try again or create a plan manually.`);
-      } else if (suggestion) {
-        setAiSuggestion(String(suggestion));
-      } else {
-        setAiSuggestion("No suggestion available. Please try again or create a plan manually.");
-      }
-    } catch (e: any) {
-      setAiSuggestion(`Error: ${e?.message || "Failed to fetch AI suggestion. Please try again or create a plan manually."}`);
-    } finally {
-      setIsAsking(false);
-    }
-  }
-
-  // Auto-trigger when KR or plan type changes (only after both chosen)
-  useEffect(() => {
-    if (activeTab && selectedKeyResultId) {
-      askForPlanSuggestion();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKeyResultId, activeTab]);
-
   const handleCreatePlan = (planType: "Daily" | "Weekly", keyResultId: string, tasks: Task[]) => {
     const newPlan: Plan = {
       id: crypto.randomUUID(),
       keyResultId,
-      date: new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" }), // Adjusted for EAT
+      date: new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" }),
       status: "Open",
       tasks: tasks.map((t) => ({ ...t, achieved: 0, krProgress: 0 })),
       achieved: 0,
@@ -234,6 +196,34 @@ export function PlanningDashboard() {
       [planType]: [...(prev[planType] || []), newPlan],
     }));
     setShowCreateForm(false);
+  };
+
+  const handleUpdatePlan = (planId: string, updatedPlan: Plan) => {
+    setPlans((prev) => ({
+      ...prev,
+      [activeTab]: prev[activeTab].map((p) => (p.id === planId ? updatedPlan : p)),
+    }));
+    setEditingPlanId(null);
+  };
+
+  const handleUpdateTask = (planId: string, taskId: string, field: keyof Task, value: any) => {
+    setPlans((prev) => ({
+      ...prev,
+      [activeTab]: prev[activeTab].map((plan) =>
+        plan.id === planId
+          ? {
+              ...plan,
+              tasks: plan.tasks.map((task) =>
+                task.id === taskId ? { ...task, [field]: value } : task
+              ),
+            }
+          : plan
+      ),
+    }));
+  };
+
+  const handleSaveTask = () => {
+    setEditingTaskId(null);
   };
 
   return (
@@ -301,13 +291,6 @@ export function PlanningDashboard() {
                 </Select>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">
-                  {isAsking
-                    ? "Generating plan from AI..."
-                    : aiSuggestion
-                    ? aiSuggestion
-                    : "Select a Key Result to get AI suggestion automatically."}
-                </span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -324,6 +307,7 @@ export function PlanningDashboard() {
             <CreatePlanModal
               open={showCreateForm}
               onClose={() => setShowCreateForm(false)}
+              onSave={handleCreatePlan}
               planType={activeTab}
               keyResults={employeeKRs}
               weeklyPlans={plans.Weekly || []}
@@ -342,18 +326,11 @@ export function PlanningDashboard() {
             {/* Main content area */}
             {activeTab && selectedEmployeeId && (
               <div className="px-6 pb-6">
-                {/* AI Suggestion Panel */}
-                {aiSuggestion && !isAsking && (
-                  <div className="mb-6 p-4 bg-card border border-blue-200 rounded-lg text-sm whitespace-pre-wrap">
-                    <div className="font-medium mb-2">AI Suggestion</div>
-                    <div className="text-muted-foreground">{aiSuggestion}</div>
-                  </div>
-                )}
-
                 {/* Plans Display */}
                 {plansForSelectedEmployee.length > 0 ? (
                   plansForSelectedEmployee.map((plan) => {
                     const KR = keyResults.find((kr) => kr.id === plan.keyResultId);
+                    const isEditingPlan = editingPlanId === plan.id;
                     return (
                       <div key={plan.id} className="mb-8">
                         {/* Plan Info Card */}
@@ -393,7 +370,7 @@ export function PlanningDashboard() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem>Edit</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => setEditingPlanId(plan.id)}>Edit Plan</DropdownMenuItem>
                                   <DropdownMenuItem className="text-red-600">
                                     Delete
                                   </DropdownMenuItem>
@@ -407,71 +384,141 @@ export function PlanningDashboard() {
                             <Badge className="bg-green-100 text-green-800">KR Progress {plan.progress.toFixed(2)}%</Badge>
                           </div>
                           <div className="mt-4 flex items-center gap-2">
-                            <Target className="w-4 h-4 text-blue-500" /> {/* Changed to match key icon in UI */}
+                            <Target className="w-4 h-4 text-blue-500" />
                             <p className="text-sm font-medium">{KR?.title}</p>
                           </div>
+                          {isEditingPlan && (
+                            <div className="mt-4 flex justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => setEditingPlanId(null)}>
+                                <X className="w-4 h-4 mr-2" />
+                                Cancel
+                              </Button>
+                              <Button size="sm" onClick={() => handleUpdatePlan(plan.id, plan)}>
+                                <Save className="w-4 h-4 mr-2" />
+                                Save Plan
+                              </Button>
+                            </div>
+                          )}
                         </div>
 
                         {/* Task Cards */}
                         <div className="space-y-4">
-                          {plan.tasks.map((task) => (
-                            <div
-                              key={task.id}
-                              className="bg-card border border-border rounded-lg p-4"
-                            >
-                              <h3 className="font-medium text-sm mb-3">
-                                {task.title}
-                              </h3>
-                              <div className="bg-gray-50 p-3 rounded">
-                                <div className="flex items-start justify-between mb-2">
-                                  <p className="text-sm text-muted-foreground">
-                                    {task.description}
-                                  </p>
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8"
-                                      >
-                                        <MoreVertical className="w-4 h-4" />
+                          {plan.tasks.map((task) => {
+                            const isEditingTask = editingTaskId === task.id;
+                            return (
+                              <div
+                                key={task.id}
+                                className="bg-card border border-border rounded-lg p-4"
+                              >
+                                {isEditingTask ? (
+                                  <div>
+                                    <Input
+                                      value={task.title}
+                                      onChange={(e) => handleUpdateTask(plan.id, task.id, 'title', e.target.value)}
+                                      className="mb-2"
+                                    />
+                                    <Textarea
+                                      value={task.description || ""}
+                                      onChange={(e) => handleUpdateTask(plan.id, task.id, 'description', e.target.value)}
+                                      className="mb-2"
+                                    />
+                                    <Select
+                                      value={task.priority}
+                                      onValueChange={(value) => handleUpdateTask(plan.id, task.id, 'priority', value)}
+                                    >
+                                      <SelectTrigger className="mb-2">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="High">High</SelectItem>
+                                        <SelectItem value="Medium">Medium</SelectItem>
+                                        <SelectItem value="Low">Low</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                    <Input
+                                      type="number"
+                                      value={task.target}
+                                      onChange={(e) => handleUpdateTask(plan.id, task.id, 'target', parseInt(e.target.value))}
+                                      placeholder="Target"
+                                      className="mb-2"
+                                    />
+                                    <Input
+                                      type="number"
+                                      value={task.weight}
+                                      onChange={(e) => handleUpdateTask(plan.id, task.id, 'weight', parseFloat(e.target.value))}
+                                      placeholder="Weight"
+                                      className="mb-2"
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                      <Button variant="outline" size="sm" onClick={() => setEditingTaskId(null)}>
+                                        Cancel
                                       </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem>Edit</DropdownMenuItem>
-                                      <DropdownMenuItem>Duplicate</DropdownMenuItem>
-                                      <DropdownMenuItem className="text-red-600">
-                                        Delete
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                                  <span className="text-xs text-muted-foreground">
-                                    Target:{" "}
-                                    <Badge variant="secondary">{task.target}</Badge>
-                                  </span>
-                                  <Badge
-                                    className={
-                                      task.priority === "High"
-                                        ? "bg-red-100 text-red-700"
-                                        : task.priority === "Medium"
-                                        ? "bg-yellow-100 text-yellow-700"
-                                        : "bg-green-100 text-green-700"
-                                    }
-                                  >
-                                    {task.priority}
-                                  </Badge>
-                                  <span className="text-xs text-muted-foreground">
-                                    Weight:{" "}
-                                    <Badge variant="outline">
-                                      {task.weight.toFixed(3)}
-                                    </Badge>
-                                  </span>
-                                </div>
+                                      <Button size="sm" onClick={handleSaveTask}>
+                                        Save
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <h3 className="font-medium text-sm mb-3">
+                                      {task.title}
+                                    </h3>
+                                    <div className="bg-gray-50 p-3 rounded">
+                                      <div className="flex items-start justify-between mb-2">
+                                        <p className="text-sm text-muted-foreground">
+                                          {task.description}
+                                        </p>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-8 w-8"
+                                            >
+                                              <MoreVertical className="w-4 h-4" />
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => setEditingTaskId(task.id)}>
+                                              <Edit2 className="w-4 h-4 mr-2" />
+                                              Edit
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem>Duplicate</DropdownMenuItem>
+                                            <DropdownMenuItem className="text-red-600">
+                                              Delete
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                                        <span className="text-xs text-muted-foreground">
+                                          Target:{" "}
+                                          <Badge variant="secondary">{task.target}</Badge>
+                                        </span>
+                                        <Badge
+                                          className={
+                                            task.priority === "High"
+                                              ? "bg-red-100 text-red-700"
+                                              : task.priority === "Medium"
+                                              ? "bg-yellow-100 text-yellow-700"
+                                              : "bg-green-100 text-green-700"
+                                          }
+                                        >
+                                          {task.priority}
+                                        </Badge>
+                                        <span className="text-xs text-muted-foreground">
+                                          Weight:{" "}
+                                          <Badge variant="outline">
+                                            {task.weight.toFixed(3)}
+                                          </Badge>
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         <div className="mt-6 text-sm text-muted-foreground">
                           0 Comments
