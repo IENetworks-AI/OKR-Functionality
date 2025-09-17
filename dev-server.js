@@ -1,5 +1,5 @@
 // Simple development server that serves both Vite and Netlify functions
-import { spawn } from 'child_process';
+import spawn from 'cross-spawn';
 import express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { readFileSync } from 'fs';
