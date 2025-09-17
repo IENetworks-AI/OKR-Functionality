@@ -5,6 +5,8 @@ import { OKRModal } from "./okr/OKRModal";
 import { ChatBot } from "./chat/ChatBot";
 import { PlanningDashboard } from "./PlanningDashboard";
 import { ReportingDashboard } from "./ReportingDashboard";
+import { format } from "date-fns";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@radix-ui/react-select";
 
 interface SidebarItem {
   icon: any;
@@ -58,6 +60,8 @@ export function Layout() {
   const [expandedItems, setExpandedItems] = useState<string[]>(["OKR"]);
   const [activeItem, setActiveItem] = useState("OKR");
   const [showOKRModal, setShowOKRModal] = useState(false);
+  const [okrs, setOkrs] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState("My OKR");
 
   const toggleExpanded = (label: string) => {
     setExpandedItems(prev => 
@@ -105,7 +109,7 @@ export function Layout() {
   const renderContent = () => {
     if (activeItem === "Planning and Reporting") {
       return (
-        <div className="flex">
+        <div className="flex-1">
           <PlanningDashboard />
           {/* <ReportingDashboard /> */}
         </div>
@@ -145,37 +149,60 @@ export function Layout() {
         <div className="p-6">
           {/* Filters */}
           <div className="flex items-center gap-4 mb-6">
-            <select className="px-3 py-2 border border-border rounded-lg text-sm">
-              <option>FY2018</option>
-              <option>FY2019</option>
-              <option>FY2020</option>
-            </select>
+            <Select defaultValue="FY2018">
+              <SelectTrigger className="w-[120px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FY2018">FY2018</SelectItem>
+                <SelectItem value="FY2019">FY2019</SelectItem>
+                <SelectItem value="FY2020">FY2020</SelectItem>
+              </SelectContent>
+            </Select>
             
             <div className="flex flex-col gap-1">
-              <select className="px-3 py-1 border border-border rounded text-xs">
-                <option>FY-2018 Q1</option>
-              </select>
-              <select className="px-3 py-1 border border-border rounded text-xs">
-                <option>FY-2018 Q2</option>
-              </select>
+              <Select defaultValue="FY-2018 Q1">
+                <SelectTrigger className="text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FY-2018 Q1">FY-2018 Q1</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select defaultValue="FY-2018 Q2">
+                <SelectTrigger className="text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FY-2018 Q2">FY-2018 Q2</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             
-            <select className="px-3 py-2 border border-border rounded-lg text-sm">
-              <option>Filter by Metric Type</option>
-            </select>
+            <Select>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by Metric Type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="milestone">Milestone</SelectItem>
+                <SelectItem value="target">Target</SelectItem>
+                <SelectItem value="metric">Metric</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Tabs */}
           <div className="border-b border-border mb-6">
             <div className="flex gap-8">
-              {["My OKR", "Team OKR", "Company OKR", "All Employee OKR"].map((tab, index) => (
+              {["My OKR", "Team OKR", "Company OKR", "All Employee OKR"].map((tab) => (
                 <button
                   key={tab}
                   className={`pb-3 text-sm font-medium transition-colors relative ${
-                    index === 0
+                    activeTab === tab
                       ? "text-primary border-b-2 border-primary"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
+                  onClick={() => setActiveTab(tab)}
                 >
                   {tab}
                 </button>
@@ -185,18 +212,40 @@ export function Layout() {
 
           {/* Objective Cards */}
           <div className="grid grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map((item) => (
-              <div key={item} className="bg-card border border-border rounded-lg p-6">
-                <div className="space-y-4">
-                  <div className="h-4 bg-muted rounded animate-pulse" />
-                  <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
-                  <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+            {okrs.length > 0 ? (
+              okrs.map((okr, index) => (
+                <div key={index} className="bg-card border border-border rounded-lg p-6">
+                  <h3 className="font-semibold mb-2">{okr.objective}</h3>
+                  <p className="text-sm text-muted-foreground mb-1">Aligned to: {okr.alignment}</p>
+                  {okr.deadline && (
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Deadline: {format(okr.deadline, "PPP")}
+                    </p>
+                  )}
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <h4 className="text-sm font-medium mb-2">Key Results:</h4>
+                    {okr.keyResults.map((kr: any) => (
+                      <p key={kr.id} className="text-sm mb-1">
+                        {kr.text} ({kr.weight}%)
+                      </p>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-6 pt-4 border-t border-border">
-                  <div className="h-3 bg-muted rounded animate-pulse w-full" />
+              ))
+            ) : (
+              [1, 2, 3, 4].map((item) => (
+                <div key={item} className="bg-card border border-border rounded-lg p-6">
+                  <div className="space-y-4">
+                    <div className="h-4 bg-muted rounded animate-pulse" />
+                    <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+                    <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
+                  </div>
+                  <div className="mt-6 pt-4 border-t border-border">
+                    <div className="h-3 bg-muted rounded animate-pulse w-full" />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
 
           {/* Bottom Objective */}
@@ -238,7 +287,11 @@ export function Layout() {
       </div>
 
       {/* OKR Modal */}
-      <OKRModal open={showOKRModal} onOpenChange={setShowOKRModal} />
+      <OKRModal 
+        open={showOKRModal} 
+        onOpenChange={setShowOKRModal}
+        onSave={(newOkr) => setOkrs([...okrs, newOkr])}
+      />
       
       {/* ChatBot */}
       <ChatBot />

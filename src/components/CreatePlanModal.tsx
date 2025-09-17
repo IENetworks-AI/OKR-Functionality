@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { X, Plus, Sparkles } from "lucide-react";
+import { X, Plus, Sparkles, Loader2 } from "lucide-react";
+import { askOkrModel } from "@/lib/ai";
 
 // --- Interfaces to match PlanningDashboard ---
 interface KeyResult {
@@ -13,11 +14,28 @@ interface KeyResult {
   title: string;
 }
 
+interface WeeklyTask {
+  id: string;
+  title: string;
+  description?: string;
+  priority: "High" | "Medium" | "Low";
+  weight: number;
+}
+
+interface WeeklyPlan {
+  id: string;
+  keyResultId: string;
+  date: string;
+  status: "Active" | "Closed" | "Pending" | "Open";
+  tasks: WeeklyTask[];
+}
+
 interface CreatePlanModalProps {
   open: boolean;
   onClose: () => void;
-  planType: "Daily" | "Weekly" | "Monthly";
+  planType: "Daily" | "Weekly";
   keyResults: KeyResult[];
+  weeklyPlans?: WeeklyPlan[]; // Add weekly plans prop
 }
 
 interface Task {
@@ -32,7 +50,11 @@ interface Task {
 // --- AI Simulation ---
 // This function simulates an AI generating tasks based on a Key Result title.
 // In a real application, this would be an API call to a language model.
-const generateAiTasksForKeyResult = (krTitle: string): Omit<Task, 'id'>[] => {
+// For now, using dummy data as per request. Later, replace with model API call like:
+// const prompt = `Generate tasks for ${planType} plan based on key result: ${krTitle}. Return JSON array of {title, description, priority, target, weight}`;
+// const response = await askOkrModel(prompt);
+// return parse JSON from response.
+const generateAiTasksForKeyResult = (krTitle: string, planType: "Daily" | "Weekly"): Omit<Task, 'id'>[] => {
   const lowerCaseTitle = krTitle.toLowerCase();
   
   if (lowerCaseTitle.includes("data readiness")) {
@@ -59,23 +81,151 @@ const generateAiTasksForKeyResult = (krTitle: string): Omit<Task, 'id'>[] => {
   return [{ title: "", description: "", priority: "Medium", target: 100, weight: 100 }];
 };
 
-export function CreatePlanModal({ open, onClose, planType, keyResults }: CreatePlanModalProps) {
+export function CreatePlanModal({ open, onClose, planType, keyResults, weeklyPlans = [] }: CreatePlanModalProps) {
   const [selectedKeyResultId, setSelectedKeyResultId] = useState("");
+  const [selectedWeeklyTaskId, setSelectedWeeklyTaskId] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [isGeneratingFromWeekly, setIsGeneratingFromWeekly] = useState(false);
+
+  // Get available weekly tasks for the selected key result
+  const availableWeeklyTasks = selectedKeyResultId 
+    ? weeklyPlans
+        .filter(plan => plan.keyResultId === selectedKeyResultId)
+        .flatMap(plan => plan.tasks)
+    : [];
+
+  // Function to generate daily tasks from weekly task using AI
+  const generateDailyTasksFromWeekly = async (weeklyTask: WeeklyTask) => {
+    if (!selectedKeyResultId) return;
+    
+    setIsGeneratingFromWeekly(true);
+    try {
+      const selectedKR = keyResults.find(kr => kr.id === selectedKeyResultId);
+      const prompt = `Break down this weekly task into specific daily tasks for today. Return a JSON array of tasks with the format: [{"title": "task title", "description": "task description", "priority": "High|Medium|Low", "target": 100, "weight": number}].
+
+Weekly Task: ${weeklyTask.title}
+Description: ${weeklyTask.description || "No description"}
+Key Result: ${selectedKR?.title}
+Priority: ${weeklyTask.priority}
+
+Generate 2-4 specific, actionable daily tasks that contribute to completing this weekly task. Each task should be measurable and achievable in one day. Make sure the weights add up to 100.`;
+
+      const { suggestion, error } = await askOkrModel({
+        prompt,
+        context: {
+          source: "daily-from-weekly",
+          krId: selectedKeyResultId,
+          weeklyTaskId: weeklyTask.id,
+        },
+        params: { temperature: 0.3 },
+      });
+
+      if (error) {
+        console.error("AI Error:", error);
+        // Fallback to manual task creation
+        setTasks([{ 
+          id: crypto.randomUUID(), 
+          title: `Daily task for: ${weeklyTask.title}`, 
+          description: weeklyTask.description || "", 
+          priority: weeklyTask.priority, 
+          target: 100, 
+          weight: 100 
+        }]);
+        return;
+      }
+
+      // Try to parse the AI response as JSON
+      try {
+        // Clean the response to extract JSON (handle markdown code blocks)
+        let jsonStr = suggestion;
+        
+        // Remove markdown code blocks if present
+        jsonStr = jsonStr.replace(/```json\s*/, '').replace(/```\s*$/, '');
+        
+        // Extract JSON array
+        const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          jsonStr = jsonMatch[0];
+        }
+        
+        const aiTasks = JSON.parse(jsonStr);
+        if (Array.isArray(aiTasks) && aiTasks.length > 0) {
+          const tasksWithIds = aiTasks.map((task: any) => ({
+            id: crypto.randomUUID(),
+            title: task.title || "Untitled Task",
+            description: task.description || "",
+            priority: task.priority || "Medium",
+            target: task.target || 100,
+            weight: task.weight || 25,
+          }));
+          setTasks(tasksWithIds);
+        } else {
+          throw new Error("Invalid AI response format");
+        }
+      } catch (parseError) {
+        console.error("Failed to parse AI response:", parseError);
+        // Fallback: create tasks from AI text response
+        const lines = suggestion.split('\n').filter(line => line.trim().startsWith('*') || line.trim().startsWith('-'));
+        if (lines.length > 0) {
+          const tasksFromText = lines.slice(0, 4).map((line, index) => ({
+            id: crypto.randomUUID(),
+            title: line.replace(/^[\*\-\s]+/, '').trim(),
+            description: `Generated from weekly task: ${weeklyTask.title}`,
+            priority: weeklyTask.priority,
+            target: 100,
+            weight: Math.round(100 / lines.length),
+          }));
+          setTasks(tasksFromText);
+        } else {
+          // Final fallback
+          setTasks([{ 
+            id: crypto.randomUUID(), 
+            title: `Daily task for: ${weeklyTask.title}`, 
+            description: weeklyTask.description || "", 
+            priority: weeklyTask.priority, 
+            target: 100, 
+            weight: 100 
+          }]);
+        }
+      }
+    } catch (error) {
+      console.error("Error generating daily tasks:", error);
+      // Fallback task
+      setTasks([{ 
+        id: crypto.randomUUID(), 
+        title: `Daily task for: ${weeklyTask.title}`, 
+        description: weeklyTask.description || "", 
+        priority: weeklyTask.priority, 
+        target: 100, 
+        weight: 100 
+      }]);
+    } finally {
+      setIsGeneratingFromWeekly(false);
+    }
+  };
+
+  // Handle weekly task selection
+  const handleWeeklyTaskSelection = (taskId: string) => {
+    setSelectedWeeklyTaskId(taskId);
+    const selectedWeeklyTask = availableWeeklyTasks.find(task => task.id === taskId);
+    if (selectedWeeklyTask) {
+      generateDailyTasksFromWeekly(selectedWeeklyTask);
+    }
+  };
 
   // Effect to generate tasks when a Key Result is selected
   useEffect(() => {
     if (selectedKeyResultId) {
       const selectedKR = keyResults.find(kr => kr.id === selectedKeyResultId);
       if (selectedKR) {
-        const aiSuggestedTasks = generateAiTasksForKeyResult(selectedKR.title);
+        const aiSuggestedTasks = generateAiTasksForKeyResult(selectedKR.title, planType);
         // Add a unique ID to each task
         setTasks(aiSuggestedTasks.map(task => ({ ...task, id: crypto.randomUUID() })));
       }
     } else {
       setTasks([]); // Clear tasks if no KR is selected
     }
-  }, [selectedKeyResultId, keyResults]);
+  }, [selectedKeyResultId, keyResults, planType]);
 
   const addTask = () => {
     setTasks([...tasks, { id: crypto.randomUUID(), title: "", description: "", priority: "Medium", target: 100, weight: 0 }]);
@@ -97,8 +247,17 @@ export function CreatePlanModal({ open, onClose, planType, keyResults }: CreateP
     onClose();
   };
 
+  // Reset state when modal closes
+  const handleClose = () => {
+    setSelectedKeyResultId("");
+    setSelectedWeeklyTaskId("");
+    setTasks([]);
+    setIsGeneratingFromWeekly(false);
+    onClose();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create {planType} Plan</DialogTitle>
@@ -122,13 +281,41 @@ export function CreatePlanModal({ open, onClose, planType, keyResults }: CreateP
             </Select>
           </div>
 
+          {/* Weekly Task Selection (only for Daily plans) */}
+          {planType === "Daily" && selectedKeyResultId && availableWeeklyTasks.length > 0 && (
+            <div>
+              <Label htmlFor="weekly-task" className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-500"/>
+                Generate from Weekly Task (Optional)
+              </Label>
+              <Select value={selectedWeeklyTaskId} onValueChange={handleWeeklyTaskSelection}>
+                <SelectTrigger id="weekly-task" disabled={isGeneratingFromWeekly}>
+                  <SelectValue placeholder="Choose a weekly task to break down into daily tasks" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableWeeklyTasks.map((task) => (
+                    <SelectItem key={task.id} value={task.id}>
+                      {task.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {isGeneratingFromWeekly && (
+                <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating daily tasks with AI...
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Tasks Section */}
           {selectedKeyResultId && (
             <div>
               <div className="flex items-center justify-between mb-4">
                  <Label className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-blue-500"/>
-                    AI Suggested Tasks (Editable)
+                    {selectedWeeklyTaskId ? "Daily Tasks from Weekly Task (AI Generated)" : "AI Suggested Tasks (Editable)"}
                  </Label>
                 <Button variant="outline" size="sm" onClick={addTask}>
                   <Plus className="w-4 h-4 mr-2" />
@@ -204,7 +391,7 @@ export function CreatePlanModal({ open, onClose, planType, keyResults }: CreateP
 
           {/* Action Buttons */}
           <div className="flex justify-end gap-3 pt-4 border-t mt-6">
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={handleClose}>
               Cancel
             </Button>
             <Button onClick={handleSubmit} disabled={!selectedKeyResultId || tasks.some(task => !task.title)}>

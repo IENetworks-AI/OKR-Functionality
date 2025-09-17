@@ -59,6 +59,45 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+- Netlify Functions (for AI integration)
+
+## AI Configuration
+
+This project includes AI-powered OKR suggestions. To enable this feature:
+
+1. Copy `.env.example` to `.env.local`
+2. Configure your AI model API settings:
+   ```
+   MODEL_API_URL=https://api.your-provider.com/v1/generate
+   MODEL_API_KEY=your-api-key
+   MODEL_NAME=your-model-name
+   ```
+
+### Supported AI Providers
+
+- **Google Gemini 2.0 Flash** (Currently Configured): 
+  - URL: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
+  - Get your API key from: [Google AI Studio](https://makersuite.google.com/app/apikey)
+  - Latest model with improved performance and speed
+  - Free tier available with generous limits
+- **OpenAI**: Use `https://api.openai.com/v1/chat/completions` with your OpenAI API key
+- **Anthropic**: Use `https://api.anthropic.com/v1/messages` with your Anthropic API key  
+- **Custom/Local APIs**: Configure your own endpoint
+
+### Troubleshooting AI Issues
+
+If you encounter "Unexpected end of JSON input" errors:
+
+1. Check that your `MODEL_API_URL` is correct and accessible
+2. Verify your `MODEL_API_KEY` is valid and not expired
+3. For Gemini API: Get a fresh API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+4. Ensure your AI provider is returning valid JSON responses
+5. Check the browser console and Netlify function logs for detailed error messages
+
+**Common Issues:**
+- **API Key Expired**: Gemini API keys can expire - generate a new one
+- **Rate Limits**: Check if you've exceeded your API quota
+- **Network Issues**: Ensure your deployment can access external APIs
 
 ## How can I deploy this project?
 

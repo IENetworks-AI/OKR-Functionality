@@ -15,6 +15,7 @@ import { KeyResultItem } from "./KeyResultItem";
 interface OKRModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSave: (okr: any) => void;
 }
 
 interface KeyResult {
@@ -33,7 +34,7 @@ interface Milestone {
   completed: boolean;
 }
 
-export function OKRModal({ open, onOpenChange }: OKRModalProps) {
+export function OKRModal({ open, onOpenChange, onSave }: OKRModalProps) {
   const [objective, setObjective] = useState("");
   const [alignment, setAlignment] = useState("");
   const [deadline, setDeadline] = useState<Date>();
@@ -163,14 +164,13 @@ export function OKRModal({ open, onOpenChange }: OKRModalProps) {
 
   const handleSaveOKR = () => {
     // Here you would typically save to your backend/database
-    console.log('Saving OKR:', {
+    onSave({
       objective,
       alignment,
       deadline,
       keyResults
     });
     
-    // For now, just close the modal
     onOpenChange(false);
     
     // Reset form
