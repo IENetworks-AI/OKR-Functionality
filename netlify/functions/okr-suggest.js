@@ -1,10 +1,3 @@
-// Netlify Function: okr-suggest
-// Proxies a prompt to your custom Model API securely via env vars.
-// Env vars expected:
-// - MODEL_API_URL (e.g., https://api.yourmodel.com/v1/generate)
-// - MODEL_API_KEY (optional if your API requires it)
-// - MODEL_NAME (optional)
-
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return {
@@ -14,13 +7,10 @@ exports.handler = async (event) => {
   }
 
   try {
-    const MODEL_API_URL = process.env.MODEL_API_URL;
-    const MODEL_API_KEY = process.env.MODEL_API_KEY;
-    const MODEL_NAME = process.env.MODEL_NAME;
-
-    if (!MODEL_API_URL) {
-      return { statusCode: 500, body: JSON.stringify({ error: "MODEL_API_URL is not configured" }) };
-    }
+    // Hardcoded Gemini API configuration
+    const MODEL_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+    const MODEL_API_KEY = "AIzaSyBjuLBpPU79uEPtxhzLpMhrwJqqdfcxWRM";
+    const MODEL_NAME = "gemini-2.0-flash";
 
     const contentType = event.headers["content-type"] || event.headers["Content-Type"]; 
     if (!contentType?.includes("application/json")) {
@@ -34,44 +24,25 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing 'prompt'" }) };
     }
 
-    // Construct payload based on the API provider
-    let payload;
-    let headers = {
+    // Construct payload for Gemini API
+    const payload = {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }],
+      generationConfig: {
+        temperature: params?.temperature || 0.3,
+        maxOutputTokens: params?.maxOutputTokens || 1000,
+      }
+    };
+
+    const headers = {
       "Content-Type": "application/json",
     };
 
-    // Check if this is a Gemini API URL
-    if (MODEL_API_URL.includes('generativelanguage.googleapis.com')) {
-      // Gemini API format
-      payload = {
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }],
-        generationConfig: {
-          temperature: params?.temperature || 0.3,
-          maxOutputTokens: params?.maxOutputTokens || 1000,
-        }
-      };
-      // Gemini uses API key as query parameter
-      // We'll append it to the URL later
-    } else {
-      // Generic/OpenAI format
-      payload = {
-        prompt,
-        model: MODEL_NAME,
-        context,
-        ...params,
-      };
-      if (MODEL_API_KEY) headers["Authorization"] = `Bearer ${MODEL_API_KEY}`;
-    }
-
-    // Construct the final URL (add API key for Gemini)
-    let finalUrl = MODEL_API_URL;
-    if (MODEL_API_URL.includes('generativelanguage.googleapis.com') && MODEL_API_KEY) {
-      finalUrl = `${MODEL_API_URL}?key=${MODEL_API_KEY}`;
-    }
+    // Construct the final URL with API key
+    const finalUrl = `${MODEL_API_URL}?key=${MODEL_API_KEY}`;
 
     const resp = await fetch(finalUrl, {
       method: "POST",
@@ -106,22 +77,8 @@ exports.handler = async (event) => {
       try {
         const data = JSON.parse(text);
         
-        // Extract suggestion based on API provider
-        let suggestion;
-        
-        if (MODEL_API_URL.includes('generativelanguage.googleapis.com')) {
-          // Gemini API response format
-          suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        } else {
-          // Common fields for other providers
-          suggestion =
-            data?.suggestion ||
-            data?.output ||
-            data?.choices?.[0]?.text ||
-            data?.choices?.[0]?.message?.content ||
-            data?.message ||
-            data;
-        }
+        // Extract suggestion for Gemini API
+        const suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!suggestion) {
           console.error("No suggestion found in response:", data);
