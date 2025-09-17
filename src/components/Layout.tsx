@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Settings, BookOpen, DollarSign, Clock, BarChart3, Target, Calendar, Users, Download, Plus } from "lucide-react";
+import { ChevronLeft, Settings, BookOpen, DollarSign, Clock, BarChart3, Target, Calendar, Users, Download, Plus, Edit2 } from "lucide-react";
 import { OKRModal } from "./okr/OKRModal";
 import { ChatBot } from "./chat/ChatBot";
 import { PlanningDashboard } from "./PlanningDashboard";
 import { ReportingDashboard } from "./ReportingDashboard";
 import { format } from "date-fns";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@radix-ui/react-select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface SidebarItem {
   icon: any;
@@ -60,6 +60,7 @@ export function Layout() {
   const [expandedItems, setExpandedItems] = useState<string[]>(["OKR"]);
   const [activeItem, setActiveItem] = useState("OKR");
   const [showOKRModal, setShowOKRModal] = useState(false);
+  const [currentOKR, setCurrentOKR] = useState<any | undefined>(undefined);
   const [okrs, setOkrs] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState("My OKR");
 
@@ -106,12 +107,28 @@ export function Layout() {
     );
   };
 
+  const handleSaveOKR = (savedOkr: any) => {
+    if (currentOKR) {
+      // Update existing
+      setOkrs(okrs.map(okr => okr === currentOKR ? savedOkr : okr));
+    } else {
+      // Add new
+      setOkrs([...okrs, savedOkr]);
+    }
+    setCurrentOKR(undefined);
+    setShowOKRModal(false);
+  };
+
+  const handleEditOKR = (okr: any) => {
+    setCurrentOKR(okr);
+    setShowOKRModal(true);
+  };
+
   const renderContent = () => {
     if (activeItem === "Planning and Reporting") {
       return (
         <div className="flex-1">
           <PlanningDashboard />
-          {/* <ReportingDashboard /> */}
         </div>
       );
     }
@@ -137,7 +154,10 @@ export function Layout() {
                 <Download className="w-4 h-4 mr-2" />
                 Download
               </Button>
-              <Button onClick={() => setShowOKRModal(true)}>
+              <Button onClick={() => {
+                setCurrentOKR(undefined);
+                setShowOKRModal(true);
+              }}>
                 <Plus className="w-4 h-4 mr-2" />
                 Set Objective
               </Button>
@@ -214,7 +234,15 @@ export function Layout() {
           <div className="grid grid-cols-4 gap-6">
             {okrs.length > 0 ? (
               okrs.map((okr, index) => (
-                <div key={index} className="bg-card border border-border rounded-lg p-6">
+                <div key={index} className="bg-card border border-border rounded-lg p-6 relative">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-2 h-8 w-8"
+                    onClick={() => handleEditOKR(okr)}
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </Button>
                   <h3 className="font-semibold mb-2">{okr.objective}</h3>
                   <p className="text-sm text-muted-foreground mb-1">Aligned to: {okr.alignment}</p>
                   {okr.deadline && (
@@ -246,13 +274,6 @@ export function Layout() {
                 </div>
               ))
             )}
-          </div>
-
-          {/* Bottom Objective */}
-          <div className="mt-8 bg-card border border-border rounded-lg p-4">
-            <div className="text-sm text-muted-foreground">
-              Implement and validate robust data pipelines for 2 selected feature by end of Q1
-            </div>
           </div>
         </div>
       </>
@@ -290,7 +311,8 @@ export function Layout() {
       <OKRModal 
         open={showOKRModal} 
         onOpenChange={setShowOKRModal}
-        onSave={(newOkr) => setOkrs([...okrs, newOkr])}
+        onSave={handleSaveOKR}
+        existingOKR={currentOKR}
       />
       
       {/* ChatBot */}

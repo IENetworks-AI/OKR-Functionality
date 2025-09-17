@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,16 +6,17 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Sparkles, RefreshCw, X, Plus } from "lucide-react";
+import { CalendarIcon, RefreshCw, X, Plus, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { AISuggestionCard } from "./AISuggestionCard";
 import { KeyResultItem } from "./KeyResultItem";
+import { askOkrModel } from "@/lib/ai";
 
 interface OKRModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (okr: any) => void;
+  existingOKR?: any;
 }
 
 interface KeyResult {
@@ -34,14 +35,12 @@ interface Milestone {
   completed: boolean;
 }
 
-export function OKRModal({ open, onOpenChange, onSave }: OKRModalProps) {
+export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalProps) {
   const [objective, setObjective] = useState("");
   const [alignment, setAlignment] = useState("");
-  const [deadline, setDeadline] = useState<Date>();
+  const [deadline, setDeadline] = useState<Date | undefined>(undefined);
   const [keyResults, setKeyResults] = useState<KeyResult[]>([]);
-  const [showAISuggestion, setShowAISuggestion] = useState(false);
-  const [aiSuggestionCount, setAiSuggestionCount] = useState(0);
-  const [currentAISuggestion, setCurrentAISuggestion] = useState("Retain 2,000,000 by the end of the month");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Supervisor's key results for alignment
   const supervisorKeyResults = [
@@ -52,80 +51,99 @@ export function OKRModal({ open, onOpenChange, onSave }: OKRModalProps) {
     "Expand market share by 12%"
   ];
 
-  const handleAlignmentChange = (value: string) => {
+  useEffect(() => {
+    if (open && existingOKR) {
+      setObjective(existingOKR.objective || "");
+      setAlignment(existingOKR.alignment || "");
+      setDeadline(existingOKR.deadline);
+      setKeyResults(existingOKR.keyResults || []);
+    } else if (!open) {
+      // Reset when closing
+      setObjective("");
+      setAlignment("");
+      setDeadline(undefined);
+      setKeyResults([]);
+    }
+  }, [open, existingOKR]);
+
+  const generateAIKeyResults = async (obj: string) => {
+    setIsGenerating(true);
+    try {
+      const prompt = `Generate 3-4 short, actionable key results for the objective: "${obj}". Each with full metrics. Return JSON array: [{"text": "short title", "weight": number}]. Weights sum to 100.`;
+      const { suggestion, error } = await askOkrModel({
+        prompt,
+        params: { temperature: 0.3 },
+      });
+
+      if (error) {
+        console.error("AI Error:", error);
+        return [];
+      }
+
+      // Parse response
+      let jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
+      const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+      if (jsonMatch) jsonStr = jsonMatch[0];
+      const aiKRs = JSON.parse(jsonStr);
+      if (Array.isArray(aiKRs)) {
+        return aiKRs.map((kr: any, index: number) => ({
+          id: `ai-${Date.now()}-${index}`,
+          text: kr.text || "Untitled",
+          progress: 100,
+          milestones: [],
+          isAI: true,
+          weight: kr.weight || Math.round(100 / aiKRs.length),
+          deadline: undefined
+        }));
+      }
+      return [];
+    } catch (parseError) {
+      console.error("Parse error:", parseError);
+      return [];
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleAlignmentChange = async (value: string) => {
     setAlignment(value);
-    setObjective(value); // Set selected supervisor's key result as objective
+    setObjective(value);
     
-    // Automatically generate 3-4 AI key results
-    setShowAISuggestion(true);
-    setAiSuggestionCount(4);
-    
-    // Generate multiple AI key results automatically
-    const suggestions = [
-      "Retain 2,000,000 by the end of the month",
-      "Increase customer retention rate by 15%", 
-      "Reduce customer churn by 8% this quarter",
-      "Achieve 95% customer satisfaction score"
-    ];
-    
-    const newKeyResults: KeyResult[] = suggestions.map((suggestion, index) => ({
-      id: `ai-${Date.now()}-${index}`,
-      text: suggestion,
-      progress: 100,
-      milestones: [],
-      isAI: true,
-      weight: 25,
-      deadline: undefined
-    }));
-    
-    setKeyResults(newKeyResults);
+    const newKRs = await generateAIKeyResults(value);
+    if (newKRs.length > 0) {
+      setKeyResults(newKRs);
+    }
   };
 
-  const generateAISuggestion = () => {
-    const suggestions = [
-      "Retain 2,000,000 by the end of the month",
-      "Increase customer retention rate by 15%",
-      "Reduce customer churn by 8% this quarter",
-      "Achieve 95% customer satisfaction score",
-      "Generate 1.5M revenue from existing customers"
-    ];
-    
-    const randomSuggestion = suggestions[Math.floor(Math.random() * suggestions.length)];
-    setCurrentAISuggestion(randomSuggestion);
-  };
+  const handleRegenerateKeyResult = async (id: string, prompt: string) => {
+    setIsGenerating(true);
+    try {
+      const currentKR = keyResults.find(kr => kr.id === id);
+      if (!currentKR) return;
 
-  const handleRegenerateAI = () => {
-    generateAISuggestion();
-  };
+      const regenPrompt = `Regenerate this key result with refinement: "${prompt}". Original: "${currentKR.text}". Return JSON: {"text": "new short text", "weight": number}.`;
+      const { suggestion, error } = await askOkrModel({
+        prompt: regenPrompt,
+        params: { temperature: 0.3 },
+      });
 
-  const handleAddAISuggestion = () => {
-    const newKeyResult: KeyResult = {
-      id: Date.now().toString(),
-      text: currentAISuggestion,
-      progress: 100,
-      milestones: [],
-      isAI: true,
-      weight: 25,
-      deadline: undefined
-    };
-    setKeyResults([...keyResults, newKeyResult]);
-    setShowAISuggestion(false);
-  };
+      if (error) {
+        console.error("AI Error:", error);
+        return;
+      }
 
-  const handleRegenerateKeyResult = (id: string, prompt: string) => {
-    // Simulate AI regeneration with prompt
-    const suggestions = [
-      `Focus on ${prompt}: Retain 2,000,000 by the end of the month`,
-      `${prompt} optimization: Increase customer retention rate by 15%`,
-      `${prompt} strategy: Reduce customer churn by 8% this quarter`,
-      `${prompt} target: Achieve 95% customer satisfaction score`
-    ];
-    
-    const newSuggestion = suggestions[Math.floor(Math.random() * suggestions.length)];
-    
-    setKeyResults(keyResults.map(kr => 
-      kr.id === id ? { ...kr, text: newSuggestion } : kr
-    ));
+      // Parse response
+      let jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
+      const newKR = JSON.parse(jsonStr);
+
+      setKeyResults(keyResults.map(kr => 
+        kr.id === id ? { ...kr, text: newKR.text || kr.text, weight: newKR.weight || kr.weight } : kr
+      ));
+    } catch (parseError) {
+      console.error("Parse error:", parseError);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleAddKeyResult = () => {
@@ -163,28 +181,19 @@ export function OKRModal({ open, onOpenChange, onSave }: OKRModalProps) {
   };
 
   const handleSaveOKR = () => {
-    // Here you would typically save to your backend/database
     onSave({
       objective,
       alignment,
       deadline,
       keyResults
     });
-    
     onOpenChange(false);
-    
-    // Reset form
-    setObjective("");
-    setAlignment("");
-    setDeadline(undefined);
-    setKeyResults([]);
-    setShowAISuggestion(false);
   };
 
   const handleAddMilestone = (keyResultId: string) => {
     const newMilestone: Milestone = {
       id: Date.now().toString(),
-      text: "Milestone",
+      text: "New Milestone",
       completed: false
     };
     
@@ -269,13 +278,11 @@ export function OKRModal({ open, onOpenChange, onSave }: OKRModalProps) {
               </Button>
             </div>
 
-            {/* AI Suggestion */}
-            {showAISuggestion && (
-              <AISuggestionCard
-                suggestion={currentAISuggestion}
-                suggestionCount={aiSuggestionCount}
-                onCancel={() => setShowAISuggestion(false)}
-              />
+            {isGenerating && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating AI key results...
+              </div>
             )}
 
             {/* Key Results List */}
@@ -301,8 +308,8 @@ export function OKRModal({ open, onOpenChange, onSave }: OKRModalProps) {
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSaveOKR} className="bg-primary hover:bg-primary/90">
-            Add
+          <Button onClick={handleSaveOKR} className="bg-primary hover:bg-primary/90" disabled={isGenerating}>
+            Save
           </Button>
         </div>
       </DialogContent>
