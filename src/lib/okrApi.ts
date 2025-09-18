@@ -40,21 +40,26 @@ const userMap: Record<string, { name: string; role: string }> = {
 let authToken: string | null = null;
 let tokenExpiry: number = 0;
 
-// -------------------- Auth Token --------------------
+// -------------------- Auth Token (Firebase login) --------------------
 export async function getAuthToken(): Promise<string> {
   const now = Date.now();
   if (authToken && now < tokenExpiry) return authToken;
 
   const email = import.meta.env.VITE_EMAIL;
   const password = import.meta.env.VITE_PASSWORD;
+  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
 
-  if (!email || !password) throw new Error('Missing VITE_EMAIL or VITE_PASSWORD');
+  if (!email || !password || !apiKey) {
+    throw new Error('Missing VITE_EMAIL, VITE_PASSWORD or VITE_FIREBASE_API_KEY');
+  }
 
   try {
-    const resp = await fetch('/api/auth', {
+    const firebaseLoginUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`;
+
+    const resp = await fetch(firebaseLoginUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
     });
 
     if (!resp.ok) {
@@ -64,7 +69,7 @@ export async function getAuthToken(): Promise<string> {
 
     const data = await resp.json();
     authToken = data.idToken;
-    tokenExpiry = now + (data.expiresIn * 1000) - 60000; // Refresh 1 min early
+    tokenExpiry = now + (parseInt(data.expiresIn) * 1000) - 60000; // refresh 1 min early
     console.log('Auth token refreshed');
     return authToken;
   } catch (err) {
@@ -141,6 +146,7 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
         priority: priority as 'High' | 'Medium' | 'Low',
         weight: parseFloat(apiTask.weight) || 0,
         parentTaskId: apiTask.parentTask?.id,
+        status: ''
       });
     });
 
@@ -283,4 +289,3 @@ export async function askOkrModel({
     return { suggestion: null, error: err instanceof Error ? err.message : String(err) };
   }
 }
-// src/lib/okrApi.ts
