@@ -1,4 +1,4 @@
-import { KeyResult, Employee, Task, Plan } from '@/types';
+import { KeyResult, Task, Plan } from '@/types';
 
 // API response interfaces
 interface ApiTask {
@@ -31,7 +31,7 @@ interface ApiTask {
   };
 }
 
-// Example user map
+// Example user map (optional, for showing owner names)
 const userMap: Record<string, { name: string; role: string }> = {
   'e400323a-ea98-4a30-b5ff-5a2150ef326c': { name: 'Mikias A.', role: 'AI and Data Science' },
   'fa2f0459-fec7-4ed0-b709-9038b3787122': { name: 'Test User', role: 'Engineer' },
@@ -82,7 +82,6 @@ export async function getAuthToken(): Promise<string> {
 export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
   keyResults: KeyResult[];
   plans: Plan[];
-  employees: Employee[];
 }> {
   const planId = planType === 'Daily'
     ? import.meta.env.VITE_DAILY_PLAN_ID
@@ -111,10 +110,9 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
     }
 
     const tasks: ApiTask[] = await resp.json();
-    if (!tasks.length) return { keyResults: [], plans: [], employees: [] };
+    if (!tasks.length) return { keyResults: [], plans: [] };
 
     const uniqueKeyResults = new Map<string, KeyResult>();
-    const uniqueEmployees = new Map<string, Employee>();
     const planTasks: Task[] = [];
 
     tasks.forEach((apiTask) => {
@@ -129,10 +127,6 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
           owner: { id: objUserId, name: userInfo.name, role: userInfo.role },
           objective: apiTask.keyResult.objective.title,
         });
-      }
-
-      if (!uniqueEmployees.has(objUserId)) {
-        uniqueEmployees.set(objUserId, { id: objUserId, name: userInfo.name, role: userInfo.role });
       }
 
       const priority = apiTask.priority.charAt(0).toUpperCase() + apiTask.priority.slice(1).toLowerCase();
@@ -168,11 +162,10 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
     return {
       keyResults: Array.from(uniqueKeyResults.values()),
       plans: [plan],
-      employees: Array.from(uniqueEmployees.values()),
     };
   } catch (err) {
     console.error(`Error fetching ${planType} plans:`, err instanceof Error ? err.message : String(err));
-    return { keyResults: [], plans: [], employees: [] };
+    return { keyResults: [], plans: [] };
   }
 }
 

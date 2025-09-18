@@ -4,18 +4,22 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Method Not Allowed' }),
     };
   }
 
   try {
-    const modelApiUrl = process.env.MODEL_API_URL || 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+    const modelApiUrl =
+      process.env.MODEL_API_URL ||
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
     const modelApiKey = process.env.MODEL_API_KEY;
 
     if (!modelApiKey) {
       console.error('Missing MODEL_API_KEY');
       return {
         statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Missing MODEL_API_KEY' }),
       };
     }
@@ -24,36 +28,43 @@ exports.handler = async (event) => {
     if (!contentType?.includes('application/json')) {
       return {
         statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Content-Type must be application/json' }),
       };
     }
 
     const body = JSON.parse(event.body || '{}');
-    const { prompt, params } = body;
+    const { prompt, params, context } = body;
 
     if (!prompt || typeof prompt !== 'string') {
       return {
         statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'Missing or invalid "prompt"' }),
       };
     }
 
     const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [
+        {
+          parts: [
+            { text: prompt },
+            ...(context ? [{ text: `Context: ${JSON.stringify(context)}` }] : []),
+          ],
+        },
+      ],
       generationConfig: {
-        temperature: params?.temperature || 0.3,
-        maxOutputTokens: params?.maxOutputTokens || 1000,
+        temperature: params?.temperature ?? 0.3,
+        maxOutputTokens: params?.maxOutputTokens ?? 1000,
       },
-    };
-
-    const headers = {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': modelApiKey,
     };
 
     const resp = await fetch(modelApiUrl, {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': modelApiKey,
+      },
       body: JSON.stringify(payload),
     });
 
@@ -69,6 +80,7 @@ exports.handler = async (event) => {
         console.error('Failed to parse model API response as JSON:', err);
         return {
           statusCode: 500,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ error: 'Invalid JSON response from Model API', raw: text }),
         };
       }
@@ -78,6 +90,7 @@ exports.handler = async (event) => {
       console.error(`Model API error: ${resp.status} ${resp.statusText}`, data || text);
       return {
         statusCode: resp.status,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           error: isJson ? data?.error?.message || text : `HTTP ${resp.status}: ${text || resp.statusText}`,
           raw: data || text,
@@ -90,6 +103,7 @@ exports.handler = async (event) => {
       console.error('No suggestion found in API response:', data);
       return {
         statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ error: 'No suggestion found in API response', raw: data }),
       };
     }
@@ -103,7 +117,10 @@ exports.handler = async (event) => {
     console.error('OKR Suggest function error:', error instanceof Error ? error.message : String(error));
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }),
     };
   }
 };
