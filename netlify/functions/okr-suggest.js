@@ -1,29 +1,43 @@
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
+  console.log('OKR Suggest function called with event:', event);
+
+  if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      body: JSON.stringify({ error: "Method Not Allowed" }),
+      body: JSON.stringify({ error: 'Method Not Allowed' }),
     };
   }
 
   try {
-    // Gemini API configuration
-    const MODEL_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
-    const MODEL_API_KEY = process.env.MODEL_API_KEY; // Use .env.local for security
+    const modelApiUrl = process.env.MODEL_API_URL || 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+    const modelApiKey = process.env.MODEL_API_KEY;
 
-    const contentType = event.headers["content-type"] || event.headers["Content-Type"];
-    if (!contentType?.includes("application/json")) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Content-Type must be application/json" }) };
+    if (!modelApiKey) {
+      console.error('Missing MODEL_API_KEY');
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Missing MODEL_API_KEY' }),
+      };
     }
 
-    const body = JSON.parse(event.body || "{}");
+    const contentType = event.headers['content-type'] || event.headers['Content-Type'];
+    if (!contentType?.includes('application/json')) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Content-Type must be application/json' }),
+      };
+    }
+
+    const body = JSON.parse(event.body || '{}');
     const { prompt, params } = body;
 
-    if (!prompt || typeof prompt !== "string") {
-      return { statusCode: 400, body: JSON.stringify({ error: "Missing 'prompt'" }) };
+    if (!prompt || typeof prompt !== 'string') {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Missing or invalid "prompt"' }),
+      };
     }
 
-    // Construct payload for Gemini API
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
@@ -32,61 +46,64 @@ exports.handler = async (event) => {
       },
     };
 
-    // Correct header with API key
     const headers = {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": MODEL_API_KEY,
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': modelApiKey,
     };
 
-    const resp = await fetch(MODEL_API_URL, {
-      method: "POST",
+    const resp = await fetch(modelApiUrl, {
+      method: 'POST',
       headers,
       body: JSON.stringify(payload),
     });
 
     const text = await resp.text();
-    const isJson = (resp.headers.get("content-type") || "").includes("application/json");
+    console.log('Raw model API response text:', text);
+
+    let data;
+    const isJson = (resp.headers.get('content-type') || '').includes('application/json');
+    if (isJson) {
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        console.error('Failed to parse model API response as JSON:', err);
+        return {
+          statusCode: 500,
+          body: JSON.stringify({ error: 'Invalid JSON response from Model API', raw: text }),
+        };
+      }
+    }
 
     if (!resp.ok) {
-      console.error(`Model API error: ${resp.status} ${resp.statusText}`, text);
+      console.error(`Model API error: ${resp.status} ${resp.statusText}`, data || text);
       return {
         statusCode: resp.status,
         body: JSON.stringify({
-          error: isJson ? (JSON.parse(text)?.error || text) : `HTTP ${resp.status}: ${text || resp.statusText}`,
+          error: isJson ? data?.error?.message || text : `HTTP ${resp.status}: ${text || resp.statusText}`,
+          raw: data || text,
         }),
       };
     }
 
-    if (!text || text.trim() === "") {
-      console.error("Empty response from model API");
-      return { statusCode: 500, body: JSON.stringify({ error: "Empty response from model API" }) };
+    const suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!suggestion) {
+      console.error('No suggestion found in API response:', data);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'No suggestion found in API response', raw: data }),
+      };
     }
 
-    // Parse JSON response
-    if (isJson) {
-      try {
-        const data = JSON.parse(text);
-        const suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!suggestion) {
-          console.error("No suggestion found in response:", data);
-          return { statusCode: 500, body: JSON.stringify({ error: "No suggestion found in API response" }) };
-        }
-
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ suggestion, raw: data }),
-        };
-      } catch (jsonError) {
-        console.error("Failed to parse JSON response from model API:", jsonError.message, text);
-        return { statusCode: 500, body: JSON.stringify({ error: "Invalid JSON response from model API" }) };
-      }
-    }
-
-    // Fallback: return raw text if not JSON
-    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ suggestion: text, raw: text }) };
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err?.message || "Unknown error" }) };
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suggestion, raw: data }),
+    };
+  } catch (error) {
+    console.error('OKR Suggest function error:', error instanceof Error ? error.message : String(error));
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+    };
   }
 };

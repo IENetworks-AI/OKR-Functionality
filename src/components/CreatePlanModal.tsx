@@ -1,222 +1,246 @@
-import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { X, Plus, Sparkles, Loader2 } from "lucide-react";
-import { askOkrModel } from "@/lib/ai";
+import { useState, useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { X, Plus, Sparkles, Loader2 } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
+import { askOkrModel } from '@/lib/okrApi';
+import { KeyResult, WeeklyTask, WeeklyPlan, Task } from '@/types';
 
-// --- Interfaces to match PlanningDashboard ---
-interface KeyResult {
-  id: string;
-  title: string;
-}
+// UUID fallback generator
+const generateUUID = (): string =>
+  typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
 
-interface WeeklyTask {
-  id: string;
-  title: string;
-  description?: string;
-  priority: "High" | "Medium" | "Low";
-  weight: number;
-}
-
-interface WeeklyPlan {
-  id: string;
-  keyResultId: string;
-  date: string;
-  status: "Active" | "Closed" | "Pending" | "Open";
-  tasks: WeeklyTask[];
-}
-
-interface CreatePlanModalProps {
+export interface CreatePlanModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (planType: "Daily" | "Weekly", keyResultId: string, tasks: Task[]) => void;
-  planType: "Daily" | "Weekly";
+  onSave: (planType: 'Daily' | 'Weekly', keyResultId: string, tasks: Task[]) => void;
+  planType: 'Daily' | 'Weekly';
   keyResults: KeyResult[];
-  weeklyPlans?: WeeklyPlan[]; // Add weekly plans prop
+  weeklyPlans?: WeeklyPlan[];
 }
 
-interface Task {
-  id: string; // Use string for unique ID
-  title: string;
-  description: string;
-  priority: "High" | "Medium" | "Low";
-  target: number;
-  weight: number;
-}
-
-export function CreatePlanModal({ open, onClose, onSave, planType, keyResults, weeklyPlans = [] }: CreatePlanModalProps) {
-  const [selectedKeyResultId, setSelectedKeyResultId] = useState("");
-  const [selectedWeeklyTaskId, setSelectedWeeklyTaskId] = useState("");
+export function CreatePlanModal({
+  open,
+  onClose,
+  onSave,
+  planType,
+  keyResults,
+  weeklyPlans = [],
+}: CreatePlanModalProps) {
+  const [selectedKeyResultId, setSelectedKeyResultId] = useState('');
+  const [selectedWeeklyTaskId, setSelectedWeeklyTaskId] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingFromWeekly, setIsGeneratingFromWeekly] = useState(false);
+  const { toast } = useToast();
 
-  // Get available weekly tasks for the selected key result
-  const availableWeeklyTasks = selectedKeyResultId 
-    ? weeklyPlans
-        .filter(plan => plan.keyResultId === selectedKeyResultId)
-        .flatMap(plan => plan.tasks)
+  // Weekly tasks for selected KR
+  const availableWeeklyTasks = selectedKeyResultId
+    ? Array.from(
+        new Map(
+          weeklyPlans
+            .filter((plan) => plan.keyResultId === selectedKeyResultId)
+            .flatMap((plan) => plan.tasks)
+            .map((task) => [task.id, task])
+        ).values()
+      )
     : [];
 
-  // Function to generate tasks using AI
+  // AI generate tasks from KR
   const generateAiTasks = async () => {
     if (!selectedKeyResultId) return;
-    
     setIsGenerating(true);
-    try {
-      const selectedKR = keyResults.find(kr => kr.id === selectedKeyResultId);
-      const prompt = `Generate a short list of 2-4 actionable tasks for a ${planType} plan based on this Key Result. Each task should be measurable with full metrics. Return a JSON array of tasks with format: [{"title": "short title", "description": "brief description", "priority": "High|Medium|Low", "target": 100, "weight": number}]. Ensure weights add up to 100.
 
-Key Result: ${selectedKR?.title}`;
+    try {
+      const kr = keyResults.find((kr) => kr.id === selectedKeyResultId);
+      const prompt = `
+Generate 2-4 measurable ${planType.toLowerCase()} tasks for this Key Result. 
+Return JSON array: [{"title":"string","description":"string","priority":"High|Medium|Low","target":number,"weight":number}].
+Ensure weights sum to 100.
+Key Result: ${kr?.title}
+Objective: ${kr?.objective}
+Owner: ${kr?.owner.name} (${kr?.owner.role})
+      `.trim();
 
       const { suggestion, error } = await askOkrModel({
         prompt,
-        context: {
-          source: `${planType.toLowerCase()}-plan`,
-          krId: selectedKeyResultId,
-        },
-        params: { temperature: 0.3 },
+        context: { source: `${planType.toLowerCase()}-plan`, krId: selectedKeyResultId },
+        params: { temperature: 0.3, maxOutputTokens: 1000 },
       });
 
       if (error) {
-        console.error("AI Error:", error);
-        // Fallback to empty
+        toast({ variant: 'destructive', title: 'AI Error', description: error });
         setTasks([]);
         return;
       }
 
-      // Parse AI response
       try {
-        let jsonStr = suggestion.replace(/```json\s*/, '').replace(/```\s*$/, '');
+        let jsonStr = suggestion!.replace(/```json\s*/, '').replace(/```\s*$/, '');
         const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
         if (jsonMatch) jsonStr = jsonMatch[0];
-        const aiTasks = JSON.parse(jsonStr);
+        const aiTasks: any[] = JSON.parse(jsonStr);
+
         if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-          const tasksWithIds = aiTasks.map((task: any) => ({
-            id: crypto.randomUUID(),
-            title: task.title || "Untitled Task",
-            description: task.description || "",
-            priority: task.priority || "Medium",
-            target: task.target || 100,
-            weight: task.weight || Math.round(100 / aiTasks.length),
-          }));
-          setTasks(tasksWithIds);
+          const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
+          setTasks(
+            aiTasks.map((t: any) => ({
+              id: generateUUID(),
+              title: t.title || 'Untitled Task',
+              description: t.description || '',
+              priority: t.priority || 'Medium',
+              target: parseFloat(t.target) || 100,
+              weight: totalWeight ? ((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight : 100 / aiTasks.length,
+              parentTaskId: undefined,
+              achieved: 0,
+              krProgress: 0,
+            }))
+          );
+          toast({ title: 'Success', description: 'AI-generated tasks loaded' });
+        } else {
+          setTasks([]);
+          toast({ variant: 'destructive', title: 'AI Error', description: 'No valid tasks returned' });
         }
-      } catch (parseError) {
-        console.error("Parse error:", parseError);
+      } catch {
         setTasks([]);
+        toast({ variant: 'destructive', title: 'AI Error', description: 'Failed to parse AI response' });
       }
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // Function to generate daily tasks from weekly task using AI
+  // AI generate daily tasks from weekly task
   const generateDailyTasksFromWeekly = async (weeklyTask: WeeklyTask) => {
     if (!selectedKeyResultId) return;
-    
     setIsGeneratingFromWeekly(true);
-    try {
-      const selectedKR = keyResults.find(kr => kr.id === selectedKeyResultId);
-      const prompt = `Break down this weekly task into 2-4 short, actionable daily tasks. Each with full metrics. Return JSON array: [{"title": "short title", "description": "brief description", "priority": "High|Medium|Low", "target": 100, "weight": number}]. Weights sum to 100.
 
+    try {
+      const kr = keyResults.find((kr) => kr.id === selectedKeyResultId);
+      const prompt = `
+Break down this weekly task into 2-4 daily tasks. Return JSON array of format: 
+[{"title":"string","description":"string","priority":"High|Medium|Low","target":number,"weight":number}].
 Weekly Task: ${weeklyTask.title}
-Description: ${weeklyTask.description || "No description"}
-Key Result: ${selectedKR?.title}
-Priority: ${weeklyTask.priority}`;
+Description: ${weeklyTask.description || 'No description'}
+Key Result: ${kr?.title}
+Objective: ${kr?.objective}
+Priority: ${weeklyTask.priority}
+      `.trim();
 
       const { suggestion, error } = await askOkrModel({
         prompt,
-        context: {
-          source: "daily-from-weekly",
-          krId: selectedKeyResultId,
-          weeklyTaskId: weeklyTask.id,
-        },
-        params: { temperature: 0.3 },
+        context: { source: 'daily-from-weekly', krId: selectedKeyResultId, weeklyTaskId: weeklyTask.id },
+        params: { temperature: 0.3, maxOutputTokens: 1000 },
       });
 
       if (error) {
-        console.error("AI Error:", error);
+        toast({ variant: 'destructive', title: 'AI Error', description: error });
         setTasks([]);
         return;
       }
 
-      // Parse AI response
       try {
-        let jsonStr = suggestion.replace(/```json\s*/, '').replace(/```\s*$/, '');
+        let jsonStr = suggestion!.replace(/```json\s*/, '').replace(/```\s*$/, '');
         const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
         if (jsonMatch) jsonStr = jsonMatch[0];
-        const aiTasks = JSON.parse(jsonStr);
+        const aiTasks: any[] = JSON.parse(jsonStr);
+
         if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-          const tasksWithIds = aiTasks.map((task: any) => ({
-            id: crypto.randomUUID(),
-            title: task.title || "Untitled Task",
-            description: task.description || "",
-            priority: task.priority || "Medium",
-            target: task.target || 100,
-            weight: task.weight || Math.round(100 / aiTasks.length),
-          }));
-          setTasks(tasksWithIds);
+          const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
+          setTasks(
+            aiTasks.map((t: any) => ({
+              id: generateUUID(),
+              title: t.title || 'Untitled Task',
+              description: t.description || `Linked to weekly: ${weeklyTask.title}`,
+              priority: t.priority || weeklyTask.priority,
+              target: parseFloat(t.target) || 100,
+              weight: totalWeight ? ((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight : 100 / aiTasks.length,
+              parentTaskId: weeklyTask.id,
+              achieved: 0,
+              krProgress: 0,
+            }))
+          );
+          toast({ title: 'Success', description: 'Daily tasks generated from weekly task' });
+        } else {
+          setTasks([]);
+          toast({ variant: 'destructive', title: 'AI Error', description: 'No valid tasks returned' });
         }
-      } catch (parseError) {
-        console.error("Parse error:", parseError);
+      } catch {
         setTasks([]);
+        toast({ variant: 'destructive', title: 'AI Error', description: 'Failed to parse AI response' });
       }
     } finally {
       setIsGeneratingFromWeekly(false);
     }
   };
 
-  // Handle weekly task selection
   const handleWeeklyTaskSelection = (taskId: string) => {
     setSelectedWeeklyTaskId(taskId);
-    const selectedWeeklyTask = availableWeeklyTasks.find(task => task.id === taskId);
-    if (selectedWeeklyTask) {
-      generateDailyTasksFromWeekly(selectedWeeklyTask);
-    }
-  };
-
-  // Effect to generate tasks when a Key Result is selected (only if no weekly selected for daily)
-  useEffect(() => {
-    if (selectedKeyResultId && (!selectedWeeklyTaskId || planType !== "Daily")) {
+    if (taskId) {
+      const weeklyTask = availableWeeklyTasks.find((t) => t.id === taskId);
+      if (weeklyTask) generateDailyTasksFromWeekly(weeklyTask);
+    } else {
+      setTasks([]);
       generateAiTasks();
     }
+  };
+
+  useEffect(() => {
+    if (selectedKeyResultId && (!selectedWeeklyTaskId || planType !== 'Daily')) generateAiTasks();
   }, [selectedKeyResultId, planType, selectedWeeklyTaskId]);
 
-  const addTask = () => {
-    setTasks([...tasks, { id: crypto.randomUUID(), title: "", description: "", priority: "Medium", target: 100, weight: 0 }]);
-  };
+  const addTask = () =>
+    setTasks([
+      ...tasks,
+      {
+        id: generateUUID(),
+        title: '',
+        description: selectedWeeklyTaskId
+          ? `Linked to weekly: ${availableWeeklyTasks.find((t) => t.id === selectedWeeklyTaskId)?.title || ''}`
+          : '',
+        priority: 'Medium',
+        target: 100,
+        weight: 0,
+        parentTaskId: selectedWeeklyTaskId || undefined,
+        achieved: 0,
+        krProgress: 0,
+      },
+    ]);
 
-  const removeTask = (id: string) => {
-    setTasks(tasks.filter((task) => task.id !== id));
-  };
-
-  const updateTask = (id: string, field: keyof Omit<Task, 'id'>, value: any) => {
-    const updatedTasks = tasks.map((task) =>
-      task.id === id ? { ...task, [field]: value } : task
-    );
-    setTasks(updatedTasks);
-  };
+  const removeTask = (id: string) => setTasks(tasks.filter((t) => t.id !== id));
+  const updateTask = (id: string, field: keyof Omit<Task, 'id' | 'parentTaskId' | 'achieved' | 'krProgress'>, value: string | number) =>
+    setTasks(tasks.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
 
   const handleSubmit = () => {
-    if (selectedKeyResultId && tasks.every(task => task.title)) {
-      onSave(planType, selectedKeyResultId, tasks);
-    }
+    const totalWeight = tasks.reduce((sum, t) => sum + t.weight, 0);
+    if (!selectedKeyResultId) return toast({ variant: 'destructive', title: 'Error', description: 'Select a Key Result' });
+    if (tasks.length === 0) return toast({ variant: 'destructive', title: 'Error', description: 'At least one task is required' });
+    if (tasks.some((t) => !t.title)) return toast({ variant: 'destructive', title: 'Error', description: 'All tasks must have a title' });
+    if (Math.abs(totalWeight - 100) > 0.01)
+      return toast({ variant: 'destructive', title: 'Error', description: 'Task weights must sum to 100' });
+
+    onSave(planType, selectedKeyResultId, tasks);
   };
 
-  // Reset state when modal closes
   const handleClose = () => {
-    setSelectedKeyResultId("");
-    setSelectedWeeklyTaskId("");
+    setSelectedKeyResultId('');
+    setSelectedWeeklyTaskId('');
     setTasks([]);
     setIsGenerating(false);
     setIsGeneratingFromWeekly(false);
     onClose();
   };
+
+  const totalWeight = tasks.reduce((sum, t) => sum + t.weight, 0);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -226,7 +250,7 @@ Priority: ${weeklyTask.priority}`;
         </DialogHeader>
 
         <div className="space-y-6 p-1">
-          {/* Key Result Selection */}
+          {/* Key Result */}
           <div>
             <Label htmlFor="key-result">Select Key Result</Label>
             <Select value={selectedKeyResultId} onValueChange={setSelectedKeyResultId}>
@@ -243,29 +267,28 @@ Priority: ${weeklyTask.priority}`;
             </Select>
           </div>
 
-          {/* Weekly Task Selection (only for Daily plans) */}
-          {planType === "Daily" && selectedKeyResultId && availableWeeklyTasks.length > 0 && (
+          {/* Weekly Task Selection */}
+          {planType === 'Daily' && selectedKeyResultId && availableWeeklyTasks.length > 0 && (
             <div>
               <Label htmlFor="weekly-task" className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-500"/>
-                Generate from Weekly Task (Optional)
+                <Sparkles className="w-4 h-4 text-purple-500" /> Generate from Weekly Task (Optional)
               </Label>
               <Select value={selectedWeeklyTaskId} onValueChange={handleWeeklyTaskSelection}>
                 <SelectTrigger id="weekly-task" disabled={isGeneratingFromWeekly}>
-                  <SelectValue placeholder="Choose a weekly task to break down into daily tasks" />
+                  <SelectValue placeholder="Choose a weekly task to break down" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableWeeklyTasks.map((task) => (
-                    <SelectItem key={task.id} value={task.id}>
-                      {task.title}
+                  <SelectItem value="">None (Generate from Key Result)</SelectItem>
+                  {availableWeeklyTasks.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.title}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {isGeneratingFromWeekly && (
                 <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating daily tasks with AI...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Generating daily tasks with AI...
                 </div>
               )}
             </div>
@@ -275,19 +298,22 @@ Priority: ${weeklyTask.priority}`;
           {selectedKeyResultId && (
             <div>
               <div className="flex items-center justify-between mb-4">
-                 <Label className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-blue-500"/>
-                    {selectedWeeklyTaskId ? "Daily Tasks from Weekly Task (AI Generated)" : "AI Suggested Tasks (Editable)"}
-                 </Label>
-                <Button variant="outline" size="sm" onClick={addTask}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Manual Task
-                </Button>
+                <Label className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-blue-500" />
+                  {selectedWeeklyTaskId ? 'Daily Tasks from Weekly Task' : 'AI Suggested Tasks (Editable)'}
+                </Label>
+                <div className="flex items-center gap-4">
+                  <span className={`text-sm ${totalWeight !== 100 ? 'text-red-500' : 'text-green-500'}`}>
+                    Total Weight: {totalWeight.toFixed(2)}%
+                  </span>
+                  <Button variant="outline" size="sm" onClick={addTask}>
+                    <Plus className="w-4 h-4 mr-2" /> Add Manual Task
+                  </Button>
+                </div>
               </div>
               {isGenerating && !selectedWeeklyTaskId && (
                 <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating {planType.toLowerCase()} tasks with AI...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Generating {planType.toLowerCase()} tasks with AI...
                 </div>
               )}
 
@@ -302,54 +328,39 @@ Priority: ${weeklyTask.priority}`;
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="md:col-span-2">
-                            <Label>Task Title</Label>
-                            <Input
-                                value={task.title}
-                                onChange={(e) => updateTask(task.id, 'title', e.target.value)}
-                                placeholder="Enter task title"
-                            />
-                        </div>
+                      <div className="md:col-span-2">
+                        <Label>Task Title</Label>
+                        <Input value={task.title} onChange={(e) => updateTask(task.id, 'title', e.target.value)} placeholder="Enter task title" />
+                      </div>
 
-                        <div className="md:col-span-2">
-                            <Label>Description</Label>
-                            <Textarea
-                                value={task.description}
-                                onChange={(e) => updateTask(task.id, 'description', e.target.value)}
-                                placeholder="Task description (optional)"
-                                rows={2}
-                            />
-                        </div>
-                    
-                        <div>
-                            <Label>Priority</Label>
-                            <Select value={task.priority} onValueChange={(value: "High" | "Medium" | "Low") => updateTask(task.id, 'priority', value)}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="High">High</SelectItem>
-                                    <SelectItem value="Medium">Medium</SelectItem>
-                                    <SelectItem value="Low">Low</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+                      <div className="md:col-span-2">
+                        <Label>Description</Label>
+                        <Textarea value={task.description || ''} onChange={(e) => updateTask(task.id, 'description', e.target.value)} rows={2} />
+                      </div>
 
-                        <div>
-                            <Label>Target (%)</Label>
-                            <Input
-                                type="number"
-                                value={task.target}
-                                onChange={(e) => updateTask(task.id, 'target', parseInt(e.target.value) || 0)}
-                            />
-                        </div>
+                      <div>
+                        <Label>Priority</Label>
+                        <Select value={task.priority} onValueChange={(value: 'High' | 'Medium' | 'Low') => updateTask(task.id, 'priority', value)}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="High">High</SelectItem>
+                            <SelectItem value="Medium">Medium</SelectItem>
+                            <SelectItem value="Low">Low</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                        <div>
-                            <Label>Weight</Label>
-                            <Input
-                                type="number"
-                                value={task.weight}
-                                onChange={(e) => updateTask(task.id, 'weight', parseFloat(e.target.value) || 0)}
-                            />
-                        </div>
+                      <div>
+                        <Label>Target (%)</Label>
+                        <Input type="number" value={task.target} onChange={(e) => updateTask(task.id, 'target', parseFloat(e.target.value) || 0)} />
+                      </div>
+
+                      <div>
+                        <Label>Weight</Label>
+                        <Input type="number" value={task.weight} onChange={(e) => updateTask(task.id, 'weight', parseFloat(e.target.value) || 0)} />
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -357,12 +368,13 @@ Priority: ${weeklyTask.priority}`;
             </div>
           )}
 
-          {/* Action Buttons */}
+          {/* Actions */}
           <div className="flex justify-end gap-3 pt-4 border-t mt-6">
-            <Button variant="outline" onClick={handleClose}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={!selectedKeyResultId || tasks.some(task => !task.title)}>
+            <Button variant="outline" onClick={handleClose}>Cancel</Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={!selectedKeyResultId || tasks.length === 0 || tasks.some((t) => !t.title) || Math.abs(totalWeight - 100) > 0.01}
+            >
               Create {planType} Plan
             </Button>
           </div>
