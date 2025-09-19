@@ -1,15 +1,5 @@
 // Simple client helper to call our Netlify function for OKR suggestions
-export type OkrSuggestParams = {
-  prompt: string;
-  context?: any;
-  params?: Record<string, any>;
-};
-
-export type OkrSuggestResponse = {
-  suggestion: string | any;
-  raw?: any;
-  error?: string;
-};
+import { OkrSuggestParams, OkrSuggestResponse } from '@/types';
 
 export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   try {
@@ -43,14 +33,15 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
 
     // Try to parse JSON
     try {
-      const data = JSON.parse(text);
+      const data = JSON.parse(text) as OkrSuggestResponse;
       return data;
     } catch (jsonError) {
       return { error: "Invalid JSON response from API", suggestion: "" };
     }
-  } catch (networkError: any) {
+  } catch (networkError: unknown) {
+    const errorMessage = networkError instanceof Error ? networkError.message : "Network error occurred";
     return { 
-      error: networkError?.message || "Network error occurred", 
+      error: errorMessage, 
       suggestion: "" 
     };
   }

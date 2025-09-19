@@ -6,28 +6,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { X, Calendar, Plus, RefreshCw, Sparkles, CalendarIcon } from "lucide-react";
-import { format } from "date-fns";
+import { X, Calendar, Plus, RefreshCw, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface Milestone {
-  id: string;
-  text: string;
-  completed: boolean;
-}
-
-interface KeyResult {
-  id: string;
-  text: string;
-  progress: number;
-  milestones: Milestone[];
-  isAI?: boolean;
-  weight: number;
-  deadline?: Date;
-}
+import { OKRKeyResult } from "@/types";
 
 interface KeyResultItemProps {
-  keyResult: KeyResult;
+  keyResult: OKRKeyResult;
   onDelete: (id: string) => void;
   onUpdate: (id: string, text: string) => void;
   onUpdateWeight: (id: string, weight: number) => void;

@@ -7,9 +7,11 @@ import { PlanningDashboard } from "./PlanningDashboard";
 import { ReportingDashboard } from "./ReportingDashboard";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { OKRData } from "@/types";
+import { LucideIcon } from "lucide-react";
 
 interface SidebarItem {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   children?: SidebarItem[];
 }
@@ -60,8 +62,8 @@ export function Layout() {
   const [expandedItems, setExpandedItems] = useState<string[]>(["OKR"]);
   const [activeItem, setActiveItem] = useState("OKR");
   const [showOKRModal, setShowOKRModal] = useState(false);
-  const [currentOKR, setCurrentOKR] = useState<any | undefined>(undefined);
-  const [okrs, setOkrs] = useState<any[]>([]);
+  const [currentOKR, setCurrentOKR] = useState<OKRData | undefined>(undefined);
+  const [okrs, setOkrs] = useState<OKRData[]>([]);
   const [activeTab, setActiveTab] = useState("My OKR");
 
   const toggleExpanded = (label: string) => {
@@ -107,7 +109,7 @@ export function Layout() {
     );
   };
 
-  const handleSaveOKR = (savedOkr: any) => {
+  const handleSaveOKR = (savedOkr: OKRData) => {
     if (currentOKR) {
       // Update existing
       setOkrs(okrs.map(okr => okr === currentOKR ? savedOkr : okr));
@@ -119,7 +121,7 @@ export function Layout() {
     setShowOKRModal(false);
   };
 
-  const handleEditOKR = (okr: any) => {
+  const handleEditOKR = (okr: OKRData) => {
     setCurrentOKR(okr);
     setShowOKRModal(true);
   };
@@ -252,7 +254,7 @@ export function Layout() {
                   )}
                   <div className="mt-4 pt-4 border-t border-border">
                     <h4 className="text-sm font-medium mb-2">Key Results:</h4>
-                    {okr.keyResults.map((kr: any) => (
+                    {okr.keyResults.map((kr) => (
                       <p key={kr.id} className="text-sm mb-1">
                         {kr.text} ({kr.weight}%)
                       </p>

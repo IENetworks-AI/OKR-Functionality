@@ -1,4 +1,4 @@
-import { KeyResult, Task, Plan } from '@/types';
+import { KeyResult, Task, Plan, OkrSuggestParams, OkrSuggestResponse } from '@/types';
 
 // API response interfaces
 interface ApiTask {
@@ -251,17 +251,6 @@ export async function deleteTask(taskId: string): Promise<boolean> {
 }
 
 // -------------------- AI Suggestion --------------------
-export type OkrSuggestParams = {
-  prompt: string;
-  context?: any;
-  params?: Record<string, any>;
-};
-
-export type OkrSuggestResponse = {
-  suggestion: string | any;
-  raw?: any;
-  error?: string;
-};
 
 export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   const url = `${baseUrl}/api/okr-suggest`;
@@ -278,7 +267,9 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
       try {
         const errorData = await resp.json();
         errorMessage = errorData?.error || errorMessage;
-      } catch {}
+      } catch {
+        // Error parsing response, use default message
+      }
       return { error: errorMessage, suggestion: '' };
     }
 
@@ -286,11 +277,12 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
     if (!text.trim()) return { error: 'Empty response from API', suggestion: '' };
 
     try {
-      return JSON.parse(text);
+      return JSON.parse(text) as OkrSuggestResponse;
     } catch {
       return { error: 'Invalid JSON response from API', suggestion: '' };
     }
-  } catch (networkError: any) {
-    return { error: networkError?.message || 'Network error occurred', suggestion: '' };
+  } catch (networkError: unknown) {
+    const errorMessage = networkError instanceof Error ? networkError.message : 'Network error occurred';
+    return { error: errorMessage, suggestion: '' };
   }
 }

@@ -6,40 +6,25 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, RefreshCw, X, Plus, Loader2 } from "lucide-react";
+import { CalendarIcon, Plus, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { KeyResultItem } from "./KeyResultItem";
 import { askOkrModel } from "@/lib/ai";
+import { OKRData, OKRKeyResult, Milestone, AITask } from "@/types";
 
 interface OKRModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (okr: any) => void;
-  existingOKR?: any;
-}
-
-interface KeyResult {
-  id: string;
-  text: string;
-  progress: number;
-  milestones: Milestone[];
-  isAI?: boolean;
-  weight: number;
-  deadline?: Date;
-}
-
-interface Milestone {
-  id: string;
-  text: string;
-  completed: boolean;
+  onSave: (okr: OKRData) => void;
+  existingOKR?: OKRData;
 }
 
 export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalProps) {
   const [objective, setObjective] = useState("");
   const [alignment, setAlignment] = useState("");
   const [deadline, setDeadline] = useState<Date | undefined>(undefined);
-  const [keyResults, setKeyResults] = useState<KeyResult[]>([]);
+  const [keyResults, setKeyResults] = useState<OKRKeyResult[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Supervisor's key results for alignment
@@ -86,9 +71,9 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
       if (jsonMatch) jsonStr = jsonMatch[0];
       const aiKRs = JSON.parse(jsonStr);
       if (Array.isArray(aiKRs)) {
-        return aiKRs.map((kr: any, index: number) => ({
+        return aiKRs.map((kr: AITask, index: number) => ({
           id: `ai-${Date.now()}-${index}`,
-          text: kr.text || "Untitled",
+          text: kr.title || "Untitled",
           progress: 100,
           milestones: [],
           isAI: true,
@@ -133,8 +118,8 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
       }
 
       // Parse response
-      let jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
-      const newKR = JSON.parse(jsonStr);
+      const jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
+      const newKR = JSON.parse(jsonStr) as { text?: string; weight?: number };
 
       setKeyResults(keyResults.map(kr => 
         kr.id === id ? { ...kr, text: newKR.text || kr.text, weight: newKR.weight || kr.weight } : kr
@@ -147,7 +132,7 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
   };
 
   const handleAddKeyResult = () => {
-    const newKeyResult: KeyResult = {
+    const newKeyResult: OKRKeyResult = {
       id: Date.now().toString(),
       text: "",
       progress: 100,

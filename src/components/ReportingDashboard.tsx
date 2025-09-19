@@ -112,7 +112,7 @@ export function ReportingDashboard() {
       {/* Filters */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Select value={selectedPeriod} onValueChange={(value: any) => setSelectedPeriod(value)}>
+          <Select value={selectedPeriod} onValueChange={(value: "All" | "Daily" | "Weekly" | "Monthly") => setSelectedPeriod(value)}>
             <SelectTrigger className="w-48">
               <SelectValue placeholder="Select period" />
             </SelectTrigger>

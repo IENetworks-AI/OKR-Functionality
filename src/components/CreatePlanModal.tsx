@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { X, Plus, Sparkles, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { askOkrModel } from '@/lib/okrApi';
-import { KeyResult, WeeklyTask, WeeklyPlan, Task } from '@/types';
+import { KeyResult, WeeklyTask, WeeklyPlan, Task, AITask } from '@/types';
 
 // UUID fallback generator
 const generateUUID = (): string =>
@@ -57,7 +57,7 @@ export function CreatePlanModal({
     : [];
 
   // AI generate tasks from KR
-  const generateAiTasks = async () => {
+  const generateAiTasks = useCallback(async () => {
     if (!selectedKeyResultId) return;
     setIsGenerating(true);
 
@@ -88,12 +88,12 @@ Owner: ${kr?.owner.name} (${kr?.owner.role})
         let jsonStr = suggestion!.replace(/```json\s*/, '').replace(/```\s*$/, '');
         const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
         if (jsonMatch) jsonStr = jsonMatch[0];
-        const aiTasks: any[] = JSON.parse(jsonStr);
+        const aiTasks: AITask[] = JSON.parse(jsonStr);
 
         if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-          const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
+          const totalWeight = aiTasks.reduce((sum: number, t: AITask) => sum + (t.weight || 0), 0);
           setTasks(
-            aiTasks.map((t: any) => ({
+            aiTasks.map((t: AITask) => ({
               id: generateUUID(),
               title: t.title || 'Untitled Task',
               description: t.description || '',
@@ -117,7 +117,7 @@ Owner: ${kr?.owner.name} (${kr?.owner.role})
     } finally {
       setIsGenerating(false);
     }
-  };
+  }, [selectedKeyResultId, keyResults, planType, toast]);
 
   // AI generate daily tasks from weekly task
   const generateDailyTasksFromWeekly = async (weeklyTask: WeeklyTask) => {
@@ -152,12 +152,12 @@ Priority: ${weeklyTask.priority}
         let jsonStr = suggestion!.replace(/```json\s*/, '').replace(/```\s*$/, '');
         const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
         if (jsonMatch) jsonStr = jsonMatch[0];
-        const aiTasks: any[] = JSON.parse(jsonStr);
+        const aiTasks: AITask[] = JSON.parse(jsonStr);
 
         if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-          const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
+          const totalWeight = aiTasks.reduce((sum: number, t: AITask) => sum + (t.weight || 0), 0);
           setTasks(
-            aiTasks.map((t: any) => ({
+            aiTasks.map((t: AITask) => ({
               id: generateUUID(),
               title: t.title || 'Untitled Task',
               description: t.description || `Linked to weekly: ${weeklyTask.title}`,
@@ -196,7 +196,7 @@ Priority: ${weeklyTask.priority}
 
   useEffect(() => {
     if (selectedKeyResultId && (!selectedWeeklyTaskId || planType !== 'Daily')) generateAiTasks();
-  }, [selectedKeyResultId, planType, selectedWeeklyTaskId]);
+  }, [selectedKeyResultId, planType, selectedWeeklyTaskId, generateAiTasks]);
 
   const addTask = () =>
     setTasks([

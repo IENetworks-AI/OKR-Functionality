@@ -23,6 +23,7 @@ export interface Task {
   priority: 'High' | 'Medium' | 'Low';
   weight: number;
   parentTaskId?: string; // For daily tasks linked to weekly tasks
+  status?: string;
 }
 
 export interface Plan {
@@ -49,4 +50,49 @@ export interface WeeklyPlan {
   date: string;
   status: 'Active' | 'Closed' | 'Pending' | 'Open';
   tasks: WeeklyTask[];
+}
+
+// OKR Modal Types
+export interface OKRData {
+  objective: string;
+  alignment: string;
+  deadline?: Date;
+  keyResults: OKRKeyResult[];
+}
+
+export interface OKRKeyResult {
+  id: string;
+  text: string;
+  progress: number;
+  milestones: Milestone[];
+  isAI?: boolean;
+  weight: number;
+  deadline?: Date;
+}
+
+export interface Milestone {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+// AI API Types
+export interface AITask {
+  title: string;
+  description: string;
+  priority: 'High' | 'Medium' | 'Low';
+  target: number;
+  weight: number;
+}
+
+export interface OkrSuggestParams {
+  prompt: string;
+  context?: Record<string, unknown>;
+  params?: Record<string, unknown>;
+}
+
+export interface OkrSuggestResponse {
+  suggestion: string | unknown;
+  raw?: unknown;
+  error?: string;
 }
