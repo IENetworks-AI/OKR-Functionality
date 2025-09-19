@@ -9,11 +9,17 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 5173,
     cors: true,
+    proxy: {
+      "/api/okr-suggest": {
+        target: "http://localhost:8082", // Netlify dev server port
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/okr-suggest/, "/.netlify/functions/okr-suggest"),
+      },
+    },
   },
   plugins: [
     react(),
-    mode === 'development' &&
-    componentTagger(),
+    mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {
     alias: {

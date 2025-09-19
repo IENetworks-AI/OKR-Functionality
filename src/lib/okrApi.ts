@@ -254,31 +254,57 @@ export async function deleteTask(taskId: string): Promise<boolean> {
 }
 
 // -------------------- AI Suggestion --------------------
-export async function askOkrModel({
-  prompt,
-  context,
-  params,
-}: {
+export type OkrSuggestParams = {
   prompt: string;
-  context?: Record<string, any>;
+  context?: any;
   params?: Record<string, any>;
-}): Promise<{ suggestion: string | null; error: string | null }> {
+};
+
+export type OkrSuggestResponse = {
+  suggestion: string | any;
+  raw?: any;
+  error?: string;
+};
+
+export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   try {
-    const resp = await fetch('/api/okr-suggest', {
+    // Use relative URL in development to leverage Vite proxy
+    const endpoint = '/api/okr-suggest';
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+    const url = import.meta.env.DEV ? endpoint : `${baseUrl}${endpoint}`;
+
+    const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, params, context }),
+      body: JSON.stringify({ prompt, context, params }),
     });
 
     if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      return { suggestion: null, error: `API error (${resp.status}): ${text}` };
+      let errorMessage = `HTTP ${resp.status}: ${resp.statusText}`;
+      try {
+        const errorData = await resp.json();
+        errorMessage = errorData?.error || errorMessage;
+      } catch {
+        // Fallback to status text if JSON parsing fails
+      }
+      return { error: errorMessage, suggestion: '' };
     }
 
-    const data = await resp.json();
-    return { suggestion: data.suggestion || null, error: null };
-  } catch (err) {
-    console.error('askOkrModel error:', err instanceof Error ? err.message : String(err));
-    return { suggestion: null, error: err instanceof Error ? err.message : String(err) };
+    const text = await resp.text();
+    if (!text || text.trim() === '') {
+      return { error: 'Empty response from API', suggestion: '' };
+    }
+
+    try {
+      const data = JSON.parse(text);
+      return data;
+    } catch {
+      return { error: 'Invalid JSON response from API', suggestion: '' };
+    }
+  } catch (networkError: any) {
+    return {
+      error: networkError?.message || 'Network error occurred',
+      suggestion: '',
+    };
   }
 }
