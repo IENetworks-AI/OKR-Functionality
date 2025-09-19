@@ -5,10 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { X, Plus, Sparkles, Loader2 } from 'lucide-react';
+import { X, Plus, Sparkles, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { askOkrModel } from '@/lib/okrApi';
-import { KeyResult, WeeklyTask, WeeklyPlan, Task, AITask } from '@/types';
+import { KeyResult, WeeklyTask, WeeklyPlan, Task, AITask, ApiTaskCreate, PlanCreatePayload } from '@/types';
 
 // UUID fallback generator
 const generateUUID = (): string =>
@@ -23,7 +24,7 @@ const generateUUID = (): string =>
 export interface CreatePlanModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (planType: 'Daily' | 'Weekly', keyResultId: string, tasks: Task[]) => void;
+  onSave: (planPayload: PlanCreatePayload) => Promise<void>;
   planType: 'Daily' | 'Weekly';
   keyResults: KeyResult[];
   weeklyPlans?: WeeklyPlan[];
@@ -217,18 +218,57 @@ Priority: ${weeklyTask.priority}
     ]);
 
   const removeTask = (id: string) => setTasks(tasks.filter((t) => t.id !== id));
-  const updateTask = (id: string, field: keyof Omit<Task, 'id' | 'parentTaskId' | 'achieved' | 'krProgress'>, value: string | number) =>
-    setTasks(tasks.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
+  const updateTask = (id: string, field: keyof Omit<Task, 'id' | 'parentTaskId' | 'achieved' | 'krProgress'>, value: string | number) => {
+    setTasks(tasks.map((t) => {
+      if (t.id === id) {
+        const updated = { ...t, [field]: value };
+        // Auto-adjust weights if target is changed
+        if (field === 'target' && typeof value === 'number') {
+          updated.weight = Math.min(value, 100);
+        }
+        return updated;
+      }
+      return t;
+    }));
+  };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const totalWeight = tasks.reduce((sum, t) => sum + t.weight, 0);
+    const totalTarget = tasks.reduce((sum, t) => sum + t.target, 0);
+    
+    // Validation
     if (!selectedKeyResultId) return toast({ variant: 'destructive', title: 'Error', description: 'Select a Key Result' });
     if (tasks.length === 0) return toast({ variant: 'destructive', title: 'Error', description: 'At least one task is required' });
-    if (tasks.some((t) => !t.title)) return toast({ variant: 'destructive', title: 'Error', description: 'All tasks must have a title' });
-    if (Math.abs(totalWeight - 100) > 0.01)
-      return toast({ variant: 'destructive', title: 'Error', description: 'Task weights must sum to 100' });
+    if (tasks.some((t) => !t.title.trim())) return toast({ variant: 'destructive', title: 'Error', description: 'All tasks must have a title' });
+    if (Math.abs(totalWeight - 100) > 0.01) return toast({ variant: 'destructive', title: 'Error', description: 'Task weights must sum to 100%' });
+    if (Math.abs(totalTarget - 100) > 0.01) return toast({ variant: 'destructive', title: 'Error', description: 'Task targets must sum to 100%' });
 
-    onSave(planType, selectedKeyResultId, tasks);
+    // Convert tasks to API format
+    const planId = planType === 'Daily' 
+      ? import.meta.env.VITE_DAILY_PLAN_ID 
+      : import.meta.env.VITE_WEEKLY_PLAN_ID;
+
+    const apiTasks: ApiTaskCreate[] = tasks.map(task => ({
+      task: task.title,
+      priority: task.priority.toLowerCase(),
+      targetValue: task.target,
+      weight: task.weight,
+      keyResultId: selectedKeyResultId,
+      planId,
+      parentTaskId: task.parentTaskId
+    }));
+
+    const planPayload: PlanCreatePayload = {
+      keyResultId: selectedKeyResultId,
+      planType,
+      tasks: apiTasks
+    };
+
+    try {
+      await onSave(planPayload);
+    } catch (error) {
+      console.error('Failed to save plan:', error);
+    }
   };
 
   const handleClose = () => {
@@ -241,6 +281,9 @@ Priority: ${weeklyTask.priority}
   };
 
   const totalWeight = tasks.reduce((sum, t) => sum + t.weight, 0);
+  const totalTarget = tasks.reduce((sum, t) => sum + t.target, 0);
+  const isWeightValid = Math.abs(totalWeight - 100) < 0.01;
+  const isTargetValid = Math.abs(totalTarget - 100) < 0.01;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -254,22 +297,53 @@ Priority: ${weeklyTask.priority}
         </DialogDescription>
 
         <div className="space-y-6 p-1">
-          {/* Key Result */}
-          <div>
-            <Label htmlFor="key-result">Select Key Result</Label>
-            <Select value={selectedKeyResultId} onValueChange={setSelectedKeyResultId}>
-              <SelectTrigger id="key-result">
-                <SelectValue placeholder="Choose a Key Result to plan for" />
-              </SelectTrigger>
-              <SelectContent>
-                {keyResults.map((kr) => (
-                  <SelectItem key={kr.id} value={kr.id}>
-                    {kr.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Selection based on plan type */}
+          {planType === 'Weekly' ? (
+            <div>
+              <Label htmlFor="key-result">Select Key Result</Label>
+              <Select value={selectedKeyResultId} onValueChange={setSelectedKeyResultId}>
+                <SelectTrigger id="key-result">
+                  <SelectValue placeholder="Choose a Key Result to plan for" />
+                </SelectTrigger>
+                <SelectContent>
+                  {keyResults.map((kr) => (
+                    <SelectItem key={kr.id} value={kr.id}>
+                      {kr.title} - {kr.owner.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <div>
+              <Label htmlFor="weekly-plan">Select Weekly Plan</Label>
+              <Select value={selectedKeyResultId} onValueChange={(value) => {
+                setSelectedKeyResultId(value);
+                // Find the key result for this weekly plan
+                const weeklyPlan = weeklyPlans?.find(wp => wp.id === value);
+                if (weeklyPlan) {
+                  const kr = keyResults.find(kr => kr.id === weeklyPlan.keyResultId);
+                  if (kr) {
+                    setSelectedKeyResultId(kr.id);
+                  }
+                }
+              }}>
+                <SelectTrigger id="weekly-plan">
+                  <SelectValue placeholder="Choose a Weekly Plan to break down" />
+                </SelectTrigger>
+                <SelectContent>
+                  {weeklyPlans?.map((wp) => {
+                    const kr = keyResults.find(kr => kr.id === wp.keyResultId);
+                    return (
+                      <SelectItem key={wp.id} value={wp.id}>
+                        {kr?.title || 'Unknown KR'} - {wp.date}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Weekly Task Selection */}
           {planType === 'Daily' && selectedKeyResultId && availableWeeklyTasks.length > 0 && (
@@ -307,14 +381,38 @@ Priority: ${weeklyTask.priority}
                   {selectedWeeklyTaskId ? 'Daily Tasks from Weekly Task' : 'AI Suggested Tasks (Editable)'}
                 </Label>
                 <div className="flex items-center gap-4">
-                  <span className={`text-sm ${totalWeight !== 100 ? 'text-red-500' : 'text-green-500'}`}>
-                    Total Weight: {totalWeight.toFixed(2)}%
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {isWeightValid ? <CheckCircle className="w-4 h-4 text-green-500" /> : <AlertCircle className="w-4 h-4 text-red-500" />}
+                    <span className={`text-sm ${isWeightValid ? 'text-green-500' : 'text-red-500'}`}>
+                      Weight: {totalWeight.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isTargetValid ? <CheckCircle className="w-4 h-4 text-green-500" /> : <AlertCircle className="w-4 h-4 text-red-500" />}
+                    <span className={`text-sm ${isTargetValid ? 'text-green-500' : 'text-red-500'}`}>
+                      Target: {totalTarget.toFixed(1)}%
+                    </span>
+                  </div>
                   <Button variant="outline" size="sm" onClick={addTask}>
                     <Plus className="w-4 h-4 mr-2" /> Add Manual Task
                   </Button>
                 </div>
               </div>
+              
+              {/* Validation Alerts */}
+              {(!isWeightValid || !isTargetValid) && (
+                <Alert className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {!isWeightValid && !isTargetValid 
+                      ? 'Both weights and targets must sum to exactly 100%'
+                      : !isWeightValid 
+                      ? 'Task weights must sum to exactly 100%'
+                      : 'Task targets must sum to exactly 100%'
+                    }
+                  </AlertDescription>
+                </Alert>
+              )}
               {isGenerating && !selectedWeeklyTaskId && (
                 <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground">
                   <Loader2 className="w-4 h-4 animate-spin" /> Generating {planType.toLowerCase()} tasks with AI...
@@ -377,7 +475,15 @@ Priority: ${weeklyTask.priority}
             <Button variant="outline" onClick={handleClose}>Cancel</Button>
             <Button
               onClick={handleSubmit}
-              disabled={!selectedKeyResultId || tasks.length === 0 || tasks.some((t) => !t.title) || Math.abs(totalWeight - 100) > 0.01}
+              disabled={
+                !selectedKeyResultId || 
+                tasks.length === 0 || 
+                tasks.some((t) => !t.title.trim()) || 
+                !isWeightValid || 
+                !isTargetValid ||
+                isGenerating ||
+                isGeneratingFromWeekly
+              }
             >
               Create {planType} Plan
             </Button>

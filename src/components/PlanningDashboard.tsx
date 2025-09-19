@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Target, Plus, Loader2 } from 'lucide-react';
+import { Target, Plus, Loader2, Edit, Trash2, Save, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -16,8 +17,9 @@ import {
   updateTask,
   deleteTask,
 } from '@/lib/okrApi';
-import { KeyResult, Employee, Task, Plan } from '@/types';
+import { KeyResult, Employee, Task, Plan, PlanCreatePayload } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // UUID fallback generator
 const generateUUID = (): string =>
@@ -88,22 +90,28 @@ export function PlanningDashboard() {
 
   // -------------------- Plan Operations --------------------
   const handleCreatePlan = useCallback(
-    async (planType: 'Daily' | 'Weekly', keyResultId: string, tasks: Task[]) => {
-      const newPlan: Plan = {
-        id: generateUUID(),
-        keyResultId,
-        date: new Date().toLocaleString('en-US', { timeZone: 'Africa/Nairobi' }),
-        status: 'Open',
-        tasks: tasks.map((t) => ({ ...t, id: generateUUID(), achieved: 0, krProgress: 0 })),
-        achieved: 0,
-        progress: 0,
-      };
-
+    async (planPayload: PlanCreatePayload) => {
       try {
-        await createPlan(newPlan);
-        setPlans((prev) => ({ ...prev, [planType]: [...(prev[planType] || []), newPlan] }));
-        setShowCreateForm(false);
-        toast({ title: 'Success', description: `${planType} plan created` });
+        const result = await createPlan(planPayload);
+        
+        if (result.success) {
+          // Refresh plans after successful creation
+          const planType = planPayload.planType;
+          const updatedData = await fetchPlans(planType);
+          setPlans((prev) => ({ ...prev, [planType]: updatedData.plans }));
+          
+          setShowCreateForm(false);
+          toast({ 
+            title: 'Success', 
+            description: `${planPayload.planType} plan created successfully` 
+          });
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: result.message || 'Failed to create plan',
+          });
+        }
       } catch (err) {
         toast({
           variant: 'destructive',
@@ -115,25 +123,57 @@ export function PlanningDashboard() {
     [toast]
   );
 
+  const [editingTask, setEditingTask] = useState<string | null>(null);
+  const [taskUpdates, setTaskUpdates] = useState<Record<string, Partial<Task>>>({});
+
   const handleUpdateTask = useCallback(
-    (planId: string, taskId: string, field: keyof Task, value: string | number) => {
+    (taskId: string, field: keyof Task, value: string | number) => {
+      setTaskUpdates(prev => ({
+        ...prev,
+        [taskId]: {
+          ...prev[taskId],
+          [field]: value
+        }
+      }));
+      
+      // Update local state immediately for UI responsiveness
       setPlans((prev) => ({
         ...prev,
-        [activeTab!]: prev[activeTab!].map((plan) =>
-          plan.id === planId
-            ? { ...plan, tasks: plan.tasks.map((t) => (t.id === taskId ? { ...t, [field]: value } : t)) }
-            : plan
-        ),
+        [activeTab!]: prev[activeTab!].map((plan) => ({
+          ...plan,
+          tasks: plan.tasks.map((t) => 
+            t.id === taskId ? { ...t, [field]: value } : t
+          )
+        })),
       }));
     },
     [activeTab]
   );
 
   const handleSaveTask = useCallback(
-    async (planId: string, task: Task) => {
+    async (taskId: string) => {
       try {
-        await updateTask(planId, task);
-        toast({ title: 'Success', description: 'Task updated' });
+        const updates = taskUpdates[taskId];
+        if (!updates) return;
+        
+        const result = await updateTask(taskId, updates);
+        
+        if (result.success) {
+          // Clear the updates for this task
+          setTaskUpdates(prev => {
+            const newUpdates = { ...prev };
+            delete newUpdates[taskId];
+            return newUpdates;
+          });
+          setEditingTask(null);
+          toast({ title: 'Success', description: 'Task updated successfully' });
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: result.message || 'Failed to update task',
+          });
+        }
       } catch (err) {
         toast({
           variant: 'destructive',
@@ -142,20 +182,31 @@ export function PlanningDashboard() {
         });
       }
     },
-    [toast]
+    [taskUpdates, toast]
   );
 
   const handleDeleteTask = useCallback(
-    async (planId: string, taskId: string) => {
+    async (taskId: string) => {
       try {
-        await deleteTask(taskId);
-        setPlans((prev) => ({
-          ...prev,
-          [activeTab!]: prev[activeTab!].map((plan) =>
-            plan.id === planId ? { ...plan, tasks: plan.tasks.filter((t) => t.id !== taskId) } : plan
-          ),
-        }));
-        toast({ title: 'Success', description: 'Task deleted' });
+        const result = await deleteTask(taskId);
+        
+        if (result.success) {
+          // Remove from local state
+          setPlans((prev) => ({
+            ...prev,
+            [activeTab!]: prev[activeTab!].map((plan) => ({
+              ...plan,
+              tasks: plan.tasks.filter((t) => t.id !== taskId)
+            })),
+          }));
+          toast({ title: 'Success', description: 'Task deleted successfully' });
+        } else {
+          toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: result.message || 'Failed to delete task',
+          });
+        }
       } catch (err) {
         toast({
           variant: 'destructive',
@@ -282,13 +333,109 @@ export function PlanningDashboard() {
                           <p className="text-sm text-muted-foreground">Date: {plan.date} | Status: {plan.status}</p>
 
                           {/* Tasks */}
-                          <div className="mt-4 space-y-2">
+                          <div className="mt-4 space-y-3">
                             {plan.tasks.map((task, taskIndex) => {
                               const taskKey = `${planKey}-${task.id}-${taskIndex}`;
+                              const isEditing = editingTask === task.id;
+                              const hasUpdates = taskUpdates[task.id];
+                              
                               return (
-                                <div key={taskKey} className="p-2 border rounded flex justify-between items-center">
-                                  <span>{task.title}</span>
-                                  <span className="text-sm text-muted-foreground">{task.status || 'Pending'}</span>
+                                <div key={taskKey} className="p-3 border rounded-lg bg-card">
+                                  <div className="flex items-center justify-between mb-2">
+                                    {isEditing ? (
+                                      <Input
+                                        value={task.title}
+                                        onChange={(e) => handleUpdateTask(task.id, 'title', e.target.value)}
+                                        className="flex-1 mr-2"
+                                        placeholder="Task title"
+                                      />
+                                    ) : (
+                                      <span className="font-medium">{task.title}</span>
+                                    )}
+                                    
+                                    <div className="flex items-center gap-2">
+                                      {hasUpdates && !isEditing && (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => handleSaveTask(task.id)}
+                                        >
+                                          <Save className="w-3 h-3 mr-1" />
+                                          Save
+                                        </Button>
+                                      )}
+                                      
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => setEditingTask(isEditing ? null : task.id)}
+                                      >
+                                        {isEditing ? <X className="w-3 h-3" /> : <Edit className="w-3 h-3" />}
+                                      </Button>
+                                      
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleDeleteTask(task.id)}
+                                        className="text-red-500 hover:text-red-700"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  
+                                  {isEditing && (
+                                    <div className="grid grid-cols-3 gap-2 mt-2">
+                                      <div>
+                                        <label className="text-xs text-muted-foreground">Priority</label>
+                                        <Select
+                                          value={task.priority}
+                                          onValueChange={(value: 'High' | 'Medium' | 'Low') => 
+                                            handleUpdateTask(task.id, 'priority', value)
+                                          }
+                                        >
+                                          <SelectTrigger className="h-8">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="High">High</SelectItem>
+                                            <SelectItem value="Medium">Medium</SelectItem>
+                                            <SelectItem value="Low">Low</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      
+                                      <div>
+                                        <label className="text-xs text-muted-foreground">Target (%)</label>
+                                        <Input
+                                          type="number"
+                                          value={task.target}
+                                          onChange={(e) => handleUpdateTask(task.id, 'target', parseFloat(e.target.value) || 0)}
+                                          className="h-8"
+                                          min="0"
+                                          max="100"
+                                        />
+                                      </div>
+                                      
+                                      <div>
+                                        <label className="text-xs text-muted-foreground">Weight (%)</label>
+                                        <Input
+                                          type="number"
+                                          value={task.weight}
+                                          onChange={(e) => handleUpdateTask(task.id, 'weight', parseFloat(e.target.value) || 0)}
+                                          className="h-8"
+                                          min="0"
+                                          max="100"
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                                    <span>Priority: {task.priority}</span>
+                                    <span>Target: {task.target}% | Weight: {task.weight}%</span>
+                                    <span>Progress: {task.achieved}%</span>
+                                  </div>
                                 </div>
                               );
                             })}

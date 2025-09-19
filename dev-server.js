@@ -62,9 +62,17 @@ app.post('/.netlify/functions/okr-suggest', async (req, res) => {
         }]
       }],
       generationConfig: {
-        temperature: params?.temperature || 0.3,
-        maxOutputTokens: params?.maxOutputTokens || 1000,
-      }
+        temperature: params?.temperature || 0.1,
+        maxOutputTokens: params?.maxOutputTokens || 500,
+        topK: 1,
+        topP: 0.8,
+      },
+      safetySettings: [
+        {
+          category: "HARM_CATEGORY_HARASSMENT",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        }
+      ]
     };
 
     const response = await fetch(finalUrl, {

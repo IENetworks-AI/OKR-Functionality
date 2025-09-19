@@ -1,4 +1,4 @@
-import { KeyResult, Task, Plan, OkrSuggestParams, OkrSuggestResponse } from '@/types';
+import { KeyResult, Task, Plan, OkrSuggestParams, OkrSuggestResponse, ApiTaskCreate, PlanCreatePayload } from '@/types';
 
 // API response interfaces
 interface ApiTask {
@@ -185,36 +185,70 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 
 // -------------------- CRUD Operations --------------------
 
-// Create a plan
-export async function createPlan(plan: Plan): Promise<Plan> {
-  const url = `${baseUrl}/plans`;
+// Create a plan with tasks
+export async function createPlan(planPayload: PlanCreatePayload): Promise<{ success: boolean; planId?: string; message?: string }> {
+  const planId = planPayload.planType === 'Daily' 
+    ? import.meta.env.VITE_DAILY_PLAN_ID 
+    : import.meta.env.VITE_WEEKLY_PLAN_ID;
+    
+  const url = `${import.meta.env.VITE_API_BASE_URL}/plan-tasks`;
+  
   try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: await getAuthHeaders(),
-      body: JSON.stringify(plan),
+    const headers = await getAuthHeaders();
+    
+    // Create tasks for the plan
+    const taskPromises = planPayload.tasks.map(async (task) => {
+      const taskPayload = {
+        ...task,
+        planId,
+        priority: task.priority.toLowerCase()
+      };
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(taskPayload),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        throw new Error(`Task creation failed: ${errorText}`);
+      }
+      
+      return response.json();
     });
-
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      throw new Error(`Create plan failed (${resp.status}): ${text}`);
-    }
-
-    return await resp.json();
+    
+    await Promise.all(taskPromises);
+    
+    return { success: true, planId, message: 'Plan created successfully' };
   } catch (err) {
     console.error('Create plan error:', err instanceof Error ? err.message : String(err));
-    throw err;
+    return { 
+      success: false, 
+      message: err instanceof Error ? err.message : 'Failed to create plan' 
+    };
   }
 }
 
 // Update a task
-export async function updateTask(planId: string, task: Task): Promise<Task> {
-  const url = `${baseUrl}/plans/${planId}/tasks/${task.id}`;
+export async function updateTask(taskId: string, updates: Partial<Task>): Promise<{ success: boolean; message?: string }> {
+  const url = `${import.meta.env.VITE_API_BASE_URL}/plan-tasks/${taskId}`;
+  
   try {
+    const headers = await getAuthHeaders();
+    
+    // Transform the updates to match API format
+    const apiUpdates: Record<string, unknown> = {};
+    if (updates.title) apiUpdates.task = updates.title;
+    if (updates.target !== undefined) apiUpdates.targetValue = updates.target;
+    if (updates.achieved !== undefined) apiUpdates.actualValue = updates.achieved.toString();
+    if (updates.weight !== undefined) apiUpdates.weight = updates.weight.toString();
+    if (updates.priority) apiUpdates.priority = updates.priority.toLowerCase();
+    
     const resp = await fetch(url, {
-      method: 'PATCH',
-      headers: await getAuthHeaders(),
-      body: JSON.stringify(task),
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(apiUpdates),
     });
 
     if (!resp.ok) {
@@ -222,20 +256,26 @@ export async function updateTask(planId: string, task: Task): Promise<Task> {
       throw new Error(`Update task failed (${resp.status}): ${text}`);
     }
 
-    return await resp.json();
+    return { success: true, message: 'Task updated successfully' };
   } catch (err) {
     console.error('Update task error:', err instanceof Error ? err.message : String(err));
-    throw err;
+    return { 
+      success: false, 
+      message: err instanceof Error ? err.message : 'Failed to update task' 
+    };
   }
 }
 
 // Delete a task
-export async function deleteTask(taskId: string): Promise<boolean> {
-  const url = `${baseUrl}/tasks/${taskId}`;
+export async function deleteTask(taskId: string): Promise<{ success: boolean; message?: string }> {
+  const url = `${import.meta.env.VITE_API_BASE_URL}/plan-tasks/${taskId}`;
+  
   try {
+    const headers = await getAuthHeaders();
+    
     const resp = await fetch(url, {
       method: 'DELETE',
-      headers: await getAuthHeaders(),
+      headers,
     });
 
     if (!resp.ok) {
@@ -243,10 +283,13 @@ export async function deleteTask(taskId: string): Promise<boolean> {
       throw new Error(`Delete task failed (${resp.status}): ${text}`);
     }
 
-    return true;
+    return { success: true, message: 'Task deleted successfully' };
   } catch (err) {
     console.error('Delete task error:', err instanceof Error ? err.message : String(err));
-    return false;
+    return { 
+      success: false, 
+      message: err instanceof Error ? err.message : 'Failed to delete task' 
+    };
   }
 }
 
@@ -255,11 +298,29 @@ export async function deleteTask(taskId: string): Promise<boolean> {
 export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   const url = `${baseUrl}/api/okr-suggest`;
 
+  // Add timeout and optimized parameters
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
   try {
     const resp = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, context, params }),
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({ 
+        prompt: prompt.trim(), 
+        context, 
+        params: {
+          temperature: 0.1,
+          maxOutputTokens: 500,
+          topK: 1,
+          topP: 0.8,
+          ...params
+        }
+      }),
+      signal: controller.signal
     });
 
     if (!resp.ok) {
@@ -282,7 +343,19 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
       return { error: 'Invalid JSON response from API', suggestion: '' };
     }
   } catch (networkError: unknown) {
-    const errorMessage = networkError instanceof Error ? networkError.message : 'Network error occurred';
+    clearTimeout(timeoutId);
+    let errorMessage = 'Network error occurred';
+    
+    if (networkError instanceof Error) {
+      if (networkError.name === 'AbortError') {
+        errorMessage = 'Request timed out. Please try again.';
+      } else {
+        errorMessage = networkError.message;
+      }
+    }
+    
     return { error: errorMessage, suggestion: '' };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

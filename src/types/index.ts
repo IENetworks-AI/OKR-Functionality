@@ -26,6 +26,24 @@ export interface Task {
   status?: string;
 }
 
+// API Task format for backend integration
+export interface ApiTaskCreate {
+  task: string;
+  priority: string;
+  targetValue: number;
+  weight: number;
+  keyResultId: string;
+  planId: string;
+  parentTaskId?: string;
+}
+
+// Plan creation payload
+export interface PlanCreatePayload {
+  keyResultId: string;
+  planType: 'Daily' | 'Weekly';
+  tasks: ApiTaskCreate[];
+}
+
 export interface Plan {
   id: string;
   keyResultId: string;
