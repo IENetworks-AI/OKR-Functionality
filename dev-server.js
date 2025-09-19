@@ -37,7 +37,142 @@ app.use((req, res, next) => {
   }
 });
 
-// Netlify function handler
+// -------------------- CRUD Endpoints --------------------
+
+// Create Plan endpoint
+app.post('/api/plans', async (req, res) => {
+  try {
+    const { keyResultId, planType, tasks } = req.body;
+    
+    if (!keyResultId || !planType || !tasks || !Array.isArray(tasks)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields: keyResultId, planType, tasks' 
+      });
+    }
+
+    // Simulate plan creation
+    const planId = `plan-${Date.now()}`;
+    
+    // In a real implementation, you would save to database
+    console.log(`Creating ${planType} plan:`, {
+      planId,
+      keyResultId,
+      tasks: tasks.length
+    });
+
+    res.json({
+      success: true,
+      planId,
+      message: `${planType} plan created successfully`
+    });
+  } catch (error) {
+    console.error('Create plan error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to create plan'
+    });
+  }
+});
+
+// Update Task endpoint
+app.put('/api/tasks/:taskId', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const updates = req.body;
+    
+    if (!taskId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Task ID is required'
+      });
+    }
+
+    // Simulate task update
+    console.log(`Updating task ${taskId}:`, updates);
+
+    res.json({
+      success: true,
+      message: 'Task updated successfully'
+    });
+  } catch (error) {
+    console.error('Update task error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update task'
+    });
+  }
+});
+
+// Delete Task endpoint
+app.delete('/api/tasks/:taskId', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    if (!taskId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Task ID is required'
+      });
+    }
+
+    // Simulate task deletion
+    console.log(`Deleting task ${taskId}`);
+
+    res.json({
+      success: true,
+      message: 'Task deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete task error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to delete task'
+    });
+  }
+});
+
+// Fetch Plans endpoint (proxy to real API)
+app.get('/api/plans/:planType', async (req, res) => {
+  try {
+    const { planType } = req.params;
+    const planId = planType === 'Daily' 
+      ? process.env.VITE_DAILY_PLAN_ID 
+      : process.env.VITE_WEEKLY_PLAN_ID;
+    
+    const apiUrl = process.env.VITE_API_BASE_URL;
+    const tenantId = process.env.VITE_TENANT_ID;
+    
+    if (!apiUrl || !tenantId || !planId) {
+      return res.status(500).json({
+        error: 'Missing API configuration'
+      });
+    }
+
+    // Proxy to real API
+    const response = await fetch(`${apiUrl}/plan-tasks/get-reported-plan-tasks/by-plan-id/${planId}`, {
+      headers: {
+        'Authorization': req.headers.authorization || '',
+        'Content-Type': 'application/json',
+        'tenantId': tenantId
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Fetch plans error:', error);
+    res.status(500).json({
+      error: error.message || 'Failed to fetch plans'
+    });
+  }
+});
+
+// Netlify function handler for AI
 app.post('/.netlify/functions/okr-suggest', async (req, res) => {
   try {
     const { prompt, context, params } = req.body;

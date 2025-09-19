@@ -83,24 +83,14 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
   keyResults: KeyResult[];
   plans: Plan[];
 }> {
-  const planId = planType === 'Daily'
-    ? import.meta.env.VITE_DAILY_PLAN_ID
-    : import.meta.env.VITE_WEEKLY_PLAN_ID;
-
-  const tenantId = import.meta.env.VITE_TENANT_ID;
-  const baseUrl = import.meta.env.VITE_API_BASE_URL;
-
-  if (!planId || !tenantId || !baseUrl) throw new Error('Missing env variables for fetching plans');
-
-  const token = await getAuthToken();
-  const url = `${baseUrl}/plan-tasks/get-reported-plan-tasks/by-plan-id/${planId}`;
-
   try {
+    const token = await getAuthToken();
+    const url = `${baseUrl}/api/plans/${planType}`;
+
     const resp = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        tenantId,
       },
     });
 
@@ -168,10 +158,12 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
     return { keyResults: [], plans: [] };
   }
 }
-// -------------------- Base URL --------------------
-const baseUrl = import.meta.env.DEV
-  ? "http://localhost:8082" // development backend
-  : import.meta.env.VITE_API_BASE_URL; // production backend
+// -------------------- Base URLs --------------------
+const devUrl = "http://localhost:8082"; // development backend with Netlify functions
+const apiUrl = import.meta.env.VITE_API_BASE_URL; // production OKR backend (fetch only)
+
+// Use dev server for AI and CRUD operations, API for fetching existing data
+const baseUrl = devUrl;
 
 // -------------------- Auth Helper --------------------
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -187,40 +179,24 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 
 // Create a plan with tasks
 export async function createPlan(planPayload: PlanCreatePayload): Promise<{ success: boolean; planId?: string; message?: string }> {
-  const planId = planPayload.planType === 'Daily' 
-    ? import.meta.env.VITE_DAILY_PLAN_ID 
-    : import.meta.env.VITE_WEEKLY_PLAN_ID;
-    
-  const url = `${import.meta.env.VITE_API_BASE_URL}/plan-tasks`;
+  const url = `${baseUrl}/api/plans`;
   
   try {
-    const headers = await getAuthHeaders();
-    
-    // Create tasks for the plan
-    const taskPromises = planPayload.tasks.map(async (task) => {
-      const taskPayload = {
-        ...task,
-        planId,
-        priority: task.priority.toLowerCase()
-      };
-      
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(taskPayload),
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        throw new Error(`Task creation failed: ${errorText}`);
-      }
-      
-      return response.json();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(planPayload),
     });
     
-    await Promise.all(taskPromises);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+    }
     
-    return { success: true, planId, message: 'Plan created successfully' };
+    const result = await response.json();
+    return result;
   } catch (err) {
     console.error('Create plan error:', err instanceof Error ? err.message : String(err));
     return { 
@@ -232,31 +208,24 @@ export async function createPlan(planPayload: PlanCreatePayload): Promise<{ succ
 
 // Update a task
 export async function updateTask(taskId: string, updates: Partial<Task>): Promise<{ success: boolean; message?: string }> {
-  const url = `${import.meta.env.VITE_API_BASE_URL}/plan-tasks/${taskId}`;
+  const url = `${baseUrl}/api/tasks/${taskId}`;
   
   try {
-    const headers = await getAuthHeaders();
-    
-    // Transform the updates to match API format
-    const apiUpdates: Record<string, unknown> = {};
-    if (updates.title) apiUpdates.task = updates.title;
-    if (updates.target !== undefined) apiUpdates.targetValue = updates.target;
-    if (updates.achieved !== undefined) apiUpdates.actualValue = updates.achieved.toString();
-    if (updates.weight !== undefined) apiUpdates.weight = updates.weight.toString();
-    if (updates.priority) apiUpdates.priority = updates.priority.toLowerCase();
-    
-    const resp = await fetch(url, {
+    const response = await fetch(url, {
       method: 'PUT',
-      headers,
-      body: JSON.stringify(apiUpdates),
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(updates),
     });
 
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      throw new Error(`Update task failed (${resp.status}): ${text}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
     }
 
-    return { success: true, message: 'Task updated successfully' };
+    const result = await response.json();
+    return result;
   } catch (err) {
     console.error('Update task error:', err instanceof Error ? err.message : String(err));
     return { 
@@ -268,22 +237,23 @@ export async function updateTask(taskId: string, updates: Partial<Task>): Promis
 
 // Delete a task
 export async function deleteTask(taskId: string): Promise<{ success: boolean; message?: string }> {
-  const url = `${import.meta.env.VITE_API_BASE_URL}/plan-tasks/${taskId}`;
+  const url = `${baseUrl}/api/tasks/${taskId}`;
   
   try {
-    const headers = await getAuthHeaders();
-    
-    const resp = await fetch(url, {
+    const response = await fetch(url, {
       method: 'DELETE',
-      headers,
+      headers: {
+        'Content-Type': 'application/json'
+      }
     });
 
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '');
-      throw new Error(`Delete task failed (${resp.status}): ${text}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
     }
 
-    return { success: true, message: 'Task deleted successfully' };
+    const result = await response.json();
+    return result;
   } catch (err) {
     console.error('Delete task error:', err instanceof Error ? err.message : String(err));
     return { 

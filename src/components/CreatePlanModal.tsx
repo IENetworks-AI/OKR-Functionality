@@ -186,7 +186,7 @@ Priority: ${weeklyTask.priority}
 
   const handleWeeklyTaskSelection = (taskId: string) => {
     setSelectedWeeklyTaskId(taskId);
-    if (taskId) {
+    if (taskId && taskId !== "none") {
       const weeklyTask = availableWeeklyTasks.find((t) => t.id === taskId);
       if (weeklyTask) generateDailyTasksFromWeekly(weeklyTask);
     } else {
@@ -356,7 +356,7 @@ Priority: ${weeklyTask.priority}
                   <SelectValue placeholder="Choose a weekly task to break down" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None (Generate from Key Result)</SelectItem>
+                  <SelectItem value="none">None (Generate from Key Result)</SelectItem>
                   {availableWeeklyTasks.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.title}
