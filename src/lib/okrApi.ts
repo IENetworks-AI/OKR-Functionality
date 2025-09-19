@@ -168,22 +168,30 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
     return { keyResults: [], plans: [] };
   }
 }
+// -------------------- Base URL --------------------
+const baseUrl = import.meta.env.DEV
+  ? "http://localhost:8082" // development backend
+  : import.meta.env.VITE_API_BASE_URL; // production backend
+
+// -------------------- Auth Helper --------------------
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken();
+  return {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    tenantId: import.meta.env.VITE_TENANT_ID,
+  };
+}
 
 // -------------------- CRUD Operations --------------------
 
 // Create a plan
 export async function createPlan(plan: Plan): Promise<Plan> {
-  const token = await getAuthToken();
-  const url = `${import.meta.env.VITE_API_BASE_URL}/plans`;
-
+  const url = `${baseUrl}/plans`;
   try {
     const resp = await fetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        tenantId: import.meta.env.VITE_TENANT_ID,
-      },
+      headers: await getAuthHeaders(),
       body: JSON.stringify(plan),
     });
 
@@ -201,17 +209,11 @@ export async function createPlan(plan: Plan): Promise<Plan> {
 
 // Update a task
 export async function updateTask(planId: string, task: Task): Promise<Task> {
-  const token = await getAuthToken();
-  const url = `${import.meta.env.VITE_API_BASE_URL}/plans/${planId}/tasks/${task.id}`;
-
+  const url = `${baseUrl}/plans/${planId}/tasks/${task.id}`;
   try {
     const resp = await fetch(url, {
       method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        tenantId: import.meta.env.VITE_TENANT_ID,
-      },
+      headers: await getAuthHeaders(),
       body: JSON.stringify(task),
     });
 
@@ -229,16 +231,11 @@ export async function updateTask(planId: string, task: Task): Promise<Task> {
 
 // Delete a task
 export async function deleteTask(taskId: string): Promise<boolean> {
-  const token = await getAuthToken();
-  const url = `${import.meta.env.VITE_API_BASE_URL}/tasks/${taskId}`;
-
+  const url = `${baseUrl}/tasks/${taskId}`;
   try {
     const resp = await fetch(url, {
       method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        tenantId: import.meta.env.VITE_TENANT_ID,
-      },
+      headers: await getAuthHeaders(),
     });
 
     if (!resp.ok) {
@@ -267,12 +264,9 @@ export type OkrSuggestResponse = {
 };
 
 export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
-  try {
-    // Use relative URL in development to leverage Vite proxy
-    const endpoint = '/api/okr-suggest';
-    const baseUrl = import.meta.env.DEV ? "http://localhost:8082" : "";
-    const url = import.meta.env.DEV ? endpoint : `${baseUrl}${endpoint}`;
+  const url = `${baseUrl}/api/okr-suggest`;
 
+  try {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -284,27 +278,19 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
       try {
         const errorData = await resp.json();
         errorMessage = errorData?.error || errorMessage;
-      } catch {
-        // Fallback to status text if JSON parsing fails
-      }
+      } catch {}
       return { error: errorMessage, suggestion: '' };
     }
 
     const text = await resp.text();
-    if (!text || text.trim() === '') {
-      return { error: 'Empty response from API', suggestion: '' };
-    }
+    if (!text.trim()) return { error: 'Empty response from API', suggestion: '' };
 
     try {
-      const data = JSON.parse(text);
-      return data;
+      return JSON.parse(text);
     } catch {
       return { error: 'Invalid JSON response from API', suggestion: '' };
     }
   } catch (networkError: any) {
-    return {
-      error: networkError?.message || 'Network error occurred',
-      suggestion: '',
-    };
+    return { error: networkError?.message || 'Network error occurred', suggestion: '' };
   }
 }

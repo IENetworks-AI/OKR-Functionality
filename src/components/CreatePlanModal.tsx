@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -248,6 +248,10 @@ Priority: ${weeklyTask.priority}
         <DialogHeader>
           <DialogTitle>Create {planType} Plan</DialogTitle>
         </DialogHeader>
+
+        <DialogDescription className="sr-only">
+          Use this form to generate or add tasks for your OKR plan. Ensure task weights sum to 100%.
+        </DialogDescription>
 
         <div className="space-y-6 p-1">
           {/* Key Result */}

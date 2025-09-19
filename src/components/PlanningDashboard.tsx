@@ -50,12 +50,15 @@ export function PlanningDashboard() {
     Promise.all(['Daily', 'Weekly'].map((tab) => fetchPlans(tab as 'Daily' | 'Weekly')))
       .then(([dailyData, weeklyData]) => {
         setPlans({ Daily: dailyData.plans, Weekly: weeklyData.plans });
-        setKeyResults([...dailyData.keyResults, ...weeklyData.keyResults]);
 
+        // Dedupe key results by id to avoid duplicate keys in lists
+        const mergedKRs = [...dailyData.keyResults, ...weeklyData.keyResults];
+        const uniqueKRs = Array.from(new Map(mergedKRs.map((kr) => [kr.id, kr])).values());
+        setKeyResults(uniqueKRs);
+
+        // Dedupe employees by id
         const allEmployees = Array.from(
-          new Map(
-            [...dailyData.keyResults, ...weeklyData.keyResults].map((kr) => [kr.owner.id, kr.owner])
-          ).values()
+          new Map(uniqueKRs.map((kr) => [kr.owner.id, kr.owner])).values()
         );
         setEmployees(allEmployees);
 
