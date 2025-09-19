@@ -270,7 +270,7 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
   try {
     // Use relative URL in development to leverage Vite proxy
     const endpoint = '/api/okr-suggest';
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+    const baseUrl = import.meta.env.DEV ? "http://localhost:8082" : "";
     const url = import.meta.env.DEV ? endpoint : `${baseUrl}${endpoint}`;
 
     const resp = await fetch(url, {
