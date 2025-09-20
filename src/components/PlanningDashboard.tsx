@@ -51,15 +51,16 @@ export function PlanningDashboard() {
 
         // Deduplicate keyResults across daily and weekly plans
         const allKeyResults = [...dailyData.keyResults, ...weeklyData.keyResults];
+        // Deduplicate by stable composite key (kr.id + owner.id). If API reuses kr.id across contexts, the owner disambiguates.
         const uniqueKeyResults = Array.from(
           new Map(
-            allKeyResults.map((kr, index) => [`${kr.id}-${kr.owner.id}-${index}`, kr])
+            allKeyResults.map((kr) => [`${kr.id}-${kr.owner.id}`, kr])
           ).values()
         );
 
-        // Debug duplicate key results
+        // Debug duplicate key results (by plain id across contexts)
         const krIds = allKeyResults.map((kr) => kr.id);
-        const duplicateKrIds = krIds.filter((id, index) => krIds.indexOf(id) !== index);
+        const duplicateKrIds = Array.from(new Set(krIds.filter((id, i) => krIds.indexOf(id) !== i)));
         if (duplicateKrIds.length > 0) {
           console.warn('Duplicate Key Result IDs across daily/weekly plans:', duplicateKrIds);
           toast({

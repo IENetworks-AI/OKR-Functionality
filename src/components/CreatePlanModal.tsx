@@ -107,11 +107,12 @@ Objective: ${kr.objective}
 Owner: ${kr.owner.name} (${kr.owner.role})
       `.trim();
 
-      const { suggestion, error } = await askOkrModel({
+      const resp: any = await askOkrModel({
         prompt,
         params: { temperature: 0.3, maxOutputTokens: 1000 },
       });
 
+      const error = resp?.error;
       if (error) {
         console.error('AI task generation error:', error);
         toast({ variant: 'destructive', title: 'AI Error', description: error });
@@ -120,10 +121,25 @@ Owner: ${kr.owner.name} (${kr.owner.role})
       }
 
       try {
-        let jsonStr = suggestion.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
-        const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-        if (jsonMatch) jsonStr = jsonMatch[0];
-        const aiTasks: any[] = JSON.parse(jsonStr);
+        let aiTasks: any[] = [];
+        if (Array.isArray(resp?.tasks)) {
+          aiTasks = resp.tasks;
+        } else if (typeof resp?.suggestion === 'string' && resp.suggestion.trim()) {
+          let jsonStr = resp.suggestion.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+          if (jsonMatch) jsonStr = jsonMatch[0];
+          aiTasks = JSON.parse(jsonStr);
+        } else if (typeof resp === 'string' && resp.trim()) {
+          let jsonStr = resp.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+          if (jsonMatch) jsonStr = jsonMatch[0];
+          aiTasks = JSON.parse(jsonStr);
+        } else if (resp?.raw?.answer && typeof resp.raw.answer === 'string') {
+          let jsonStr = resp.raw.answer.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+          if (jsonMatch) jsonStr = jsonMatch[0];
+          aiTasks = JSON.parse(jsonStr);
+        }
 
         if (Array.isArray(aiTasks) && aiTasks.length > 0) {
           const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
@@ -157,7 +173,7 @@ Owner: ${kr.owner.name} (${kr.owner.role})
           toast({ variant: 'destructive', title: 'AI Error', description: 'No valid tasks returned' });
         }
       } catch (parseError) {
-        console.error('Failed to parse AI response:', parseError, 'Raw suggestion:', suggestion);
+        console.error('Failed to parse AI response:', parseError, 'Raw response:', resp);
         setTasks([]);
         toast({ variant: 'destructive', title: 'AI Error', description: 'Failed to parse AI response' });
       }
@@ -197,11 +213,12 @@ Key Result: ${kr.title}
 Objective: ${kr.objective}
       `.trim();
 
-      const { suggestion, error } = await askOkrModel({
+      const resp: any = await askOkrModel({
         prompt,
         params: { temperature: 0.3, maxOutputTokens: 1000 },
       });
 
+      const error = resp?.error;
       if (error) {
         console.error('AI daily task generation error:', error);
         toast({ variant: 'destructive', title: 'AI Error', description: error });
@@ -210,10 +227,25 @@ Objective: ${kr.objective}
       }
 
       try {
-        let jsonStr = suggestion.replace(/```json\s*/, '').replace(/```\s*$/, '').trim();
-        const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-        if (jsonMatch) jsonStr = jsonMatch[0];
-        const aiTasks: any[] = JSON.parse(jsonStr);
+        let aiTasks: any[] = [];
+        if (Array.isArray(resp?.tasks)) {
+          aiTasks = resp.tasks;
+        } else if (typeof resp?.suggestion === 'string' && resp.suggestion.trim()) {
+          let jsonStr = resp.suggestion.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+          if (jsonMatch) jsonStr = jsonMatch[0];
+          aiTasks = JSON.parse(jsonStr);
+        } else if (typeof resp === 'string' && resp.trim()) {
+          let jsonStr = resp.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+          if (jsonMatch) jsonStr = jsonMatch[0];
+          aiTasks = JSON.parse(jsonStr);
+        } else if (resp?.raw?.answer && typeof resp.raw.answer === 'string') {
+          let jsonStr = resp.raw.answer.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
+          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+          if (jsonMatch) jsonStr = jsonMatch[0];
+          aiTasks = JSON.parse(jsonStr);
+        }
 
         if (Array.isArray(aiTasks) && aiTasks.length > 0) {
           const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);

@@ -1,4 +1,4 @@
-import { askOkrModel } from "@/lib/ai";
+import { generateKeyResults } from "@/lib/okrApi";
 
 export type GeneratedKR = {
   id: string;
@@ -96,24 +96,15 @@ Return a JSON object with this structure:
 }`;
     }
 
-    const { suggestion, error } = await askOkrModel({
-      prompt,
-      params: { temperature: 0.3 },
-    });
+    const { suggestion, error } = await generateKeyResults(input);
 
     if (error) {
-      console.error("AI Error:", error);
+      console.error("Mistral API Error:", error);
       return { title: input, keyResults: [] };
     }
 
-    // Extract JSON from potential markdown fencing
-    let jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
-    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-    if (jsonMatch) jsonStr = jsonMatch[0];
-
-    const response = JSON.parse(jsonStr);
-    const title = isAlignment ? (response.objective || input) : input;
-    const aiKRs = (response.key_results) || [];
+    const title = input;
+    const aiKRs = Array.isArray(suggestion) ? suggestion : [];
 
     if (!Array.isArray(aiKRs)) return { title, keyResults: [] };
 
@@ -123,9 +114,9 @@ Return a JSON object with this structure:
         title: kr.title || "Untitled",
         progress: 0,
         metricType: kr.metric_type || "numeric",
-        targetValue: kr.target_value || 100,
-        currentValue: 0,
-        weight: kr.weight || Math.round(100 / (aiKRs.length || 1)),
+        targetValue: kr.target_value ?? 100,
+        currentValue: kr.initial_value ?? 0,
+        weight: kr.weight ?? Math.round(100 / (aiKRs.length || 1)),
         completed: false,
       };
 

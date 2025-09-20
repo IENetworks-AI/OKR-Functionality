@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CalendarIcon, RefreshCw, X, Plus, Loader2, Sparkles, Edit, Trash2, Save } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { askOkrModel } from "@/lib/ai";
+import { generateAIObjectiveAndKeyResults as genOKR } from "@/lib/okrAi";
 
 interface OKRModalProps {
   open: boolean;
@@ -87,134 +87,12 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
 
   const generateAIObjectiveAndKeyResults = async (input: string, isAlignment: boolean = false) => {
     setIsGenerating(true);
-    
     try {
-      let prompt: string;
-      if (isAlignment) {
-        prompt = `Generate an objective title and 3-4 key results for an employee that contribute to the supervisor's key result: "${input}". 
-        For each key result, provide:
-        1. A title
-        2. A weight (sum of all weights should be 100)
-        3. A metric type (milestone, percentage, numeric, currency, achieved)
-        4. If numeric/percentage/currency: target_value (initial_value is 0)
-        5. If milestone: list of milestones with their titles and weights (sum to key result weight)
-        
-        Return a JSON object with this structure:
-        {
-          "objective": "Objective title",
-          "key_results": [
-            {
-              "title": "Key result title",
-              "weight": 25,
-              "metric_type": "milestone",
-              "milestones": [
-                {"title": "Milestone 1", "weight": 10},
-                {"title": "Milestone 2", "weight": 15}
-              ]
-            },
-            {
-              "title": "Key result title",
-              "weight": 35,
-              "metric_type": "numeric",
-              "target_value": 100
-            },
-            {
-              "title": "Key result title",
-              "weight": 40,
-              "metric_type": "percentage",
-              "target_value": 90
-            }
-          ]
-        }`;
-      } else {
-        prompt = `Generate 3-4 key results for the objective: "${input}". 
-        For each key result, provide:
-        1. A title
-        2. A weight (sum of all weights should be 100)
-        3. A metric type (milestone, percentage, numeric, currency, achieved)
-        4. If numeric/percentage/currency: target_value (initial_value is 0)
-        5. If milestone: list of milestones with their titles and weights (sum to key result weight)
-        
-        Return a JSON object with this structure:
-        {
-          "key_results": [
-            {
-              "title": "Key result title",
-              "weight": 25,
-              "metric_type": "milestone",
-              "milestones": [
-                {"title": "Milestone 1", "weight": 10},
-                {"title": "Milestone 2", "weight": 15}
-              ]
-            },
-            {
-              "title": "Key result title",
-              "weight": 35,
-              "metric_type": "numeric",
-              "target_value": 100
-            },
-            {
-              "title": "Key result title",
-              "weight": 40,
-              "metric_type": "percentage",
-              "target_value": 90
-            }
-          ]
-        }`;
-      }
-
-      const { suggestion, error } = await askOkrModel({
-        prompt,
-        params: { temperature: 0.3 },
-      });
-
-      if (error) {
-        console.error("AI Error:", error);
-        return { title: input, keyResults: [] };
-      }
-
-      let jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
-      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (jsonMatch) jsonStr = jsonMatch[0];
-      
-      const response = JSON.parse(jsonStr);
-      const title = isAlignment ? (response.objective || input) : input;
-      const aiKRs = (isAlignment ? response.key_results : response.key_results) || [];
-      
-      if (Array.isArray(aiKRs)) {
-        const keyResults = aiKRs.map((kr: any, index: number) => {
-          const baseKR = {
-            id: `ai-${Date.now()}-${index}`,
-            title: kr.title || "Untitled",
-            progress: 0,
-            metricType: kr.metric_type || "numeric",
-            targetValue: kr.target_value || 100,
-            currentValue: 0,
-            weight: kr.weight || Math.round(100 / aiKRs.length),
-            completed: false
-          };
-          
-          // Handle milestones if metric type is milestone
-          if (kr.metric_type === "milestone" && kr.milestones && Array.isArray(kr.milestones)) {
-            return {
-              ...baseKR,
-              metricType: "milestone",
-              milestones: kr.milestones.map((m: any, mIndex: number) => ({
-                id: `m-${Date.now()}-${index}-${mIndex}`,
-                title: m.title || `Milestone ${mIndex + 1}`,
-                completed: false,
-                weight: m.weight || Math.round(baseKR.weight / kr.milestones.length)
-              }))
-            };
-          }
-          
-          return baseKR;
-        });
-        return { title, keyResults };
-      }
-      return { title: input, keyResults: [] };
-    } catch (parseError) {
-      console.error("Parse error:", parseError);
+      // Delegate to shared OKR generator wired to backend
+      const { title, keyResults } = await genOKR(input, isAlignment);
+      return { title, keyResults };
+    } catch (err) {
+      console.error("OKR generation error:", err);
       return { title: input, keyResults: [] };
     } finally {
       setIsGenerating(false);
