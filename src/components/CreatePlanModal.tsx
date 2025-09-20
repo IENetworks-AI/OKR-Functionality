@@ -69,7 +69,7 @@ export function CreatePlanModal({
     }
   }, [keyResults, toast]);
 
-  // Weekly plans for selected KR
+  // Weekly plans for selected KR (user-specific already via employeeKRs)
   const availableWeeklyPlans = selectedKeyResultId
     ? weeklyPlans.filter((plan) => plan.keyResultId === selectedKeyResultId)
     : [];
@@ -410,7 +410,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-md md:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create {planType} Plan</DialogTitle>
           <DialogDescription>
@@ -473,7 +473,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
                 </Label>
                 <div className="flex items-center gap-4">
                   <span className={`text-sm ${totalWeight !== 100 ? 'text-red-500' : 'text-green-500'}`}>
-                    Total Weight: {totalWeight.toFixed(2)}%
+                    Total Weight: ${totalWeight.toFixed(2)}%
                   </span>
                   <Button variant="outline" size="sm" onClick={addTask}>
                     <Plus className="w-4 h-4 mr-2" /> Add Manual Task
@@ -482,17 +482,17 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
               </div>
               {isGenerating && (!selectedWeeklyPlanId || selectedWeeklyPlanId === 'none') && (
                 <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Generating {planType.toLowerCase()} tasks with AI...
+                  <Loader2 className="w-4 h-4 animate-spin" /> Generating ${planType.toLowerCase()} tasks with AI...
                 </div>
               )}
 
               <div className="space-y-4">
-                {tasks.map((task, index) => (
+                ${tasks.map((task, index) => (
                   <div key={task.id} className="border rounded-lg p-4 bg-card relative">
                     <div className="flex items-start justify-between mb-4">
-                      <h4 className="font-medium text-sm">Task {index + 1}</h4>
+                      <h4 className="font-medium text-sm">Task ${index + 1}</h4>
                       <div className="absolute top-2 right-2 flex gap-1">
-                        {task.isAI && (
+                        ${task.isAI && (
                           <Popover>
                             <PopoverTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-7 w-7">
@@ -567,7 +567,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
                               )}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
-                              {task.deadline ? format(task.deadline, "PPP") : "Pick a date"}
+                              ${task.deadline ? format(task.deadline, "PPP") : "Pick a date"}
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0">
@@ -594,7 +594,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
               onClick={handleSubmit}
               disabled={!selectedKeyResultId || tasks.length === 0 || tasks.some((t) => !t.title) || Math.abs(totalWeight - 100) > 0.01}
             >
-              Create {planType} Plan
+              Create ${planType} Plan
             </Button>
           </div>
         </div>

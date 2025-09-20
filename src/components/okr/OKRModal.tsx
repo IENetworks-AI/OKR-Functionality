@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,10 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, RefreshCw, X, Plus, Loader2 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CalendarIcon, RefreshCw, X, Plus, Loader2, Sparkles, Edit, Trash2, Save } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { KeyResultItem } from "./KeyResultItem";
 import { askOkrModel } from "@/lib/ai";
 
 interface OKRModalProps {
@@ -19,30 +19,50 @@ interface OKRModalProps {
   existingOKR?: any;
 }
 
+interface Objective {
+  id: string;
+  title: string;
+  alignment: string;
+  keyResults: KeyResult[];
+}
+
 interface KeyResult {
   id: string;
-  text: string;
-  progress: number;
-  milestones: Milestone[];
-  isAI?: boolean;
+  title: string;
+  metricType: "milestone" | "percentage" | "numeric" | "currency" | "achieved";
+  targetValue: number;
+  currentValue: number;
   weight: number;
+  completed: boolean;
   deadline?: Date;
+  progress?: number;
+  // For milestone type
+  milestones?: Milestone[];
 }
 
 interface Milestone {
   id: string;
-  text: string;
+  title: string;
   completed: boolean;
+  weight: number;
+}
+
+interface AISuggestionCardProps {
+  suggestion: string;
+  suggestionCount: number;
+  onCancel: () => void;
 }
 
 export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalProps) {
-  const [objective, setObjective] = useState("");
   const [alignment, setAlignment] = useState("");
   const [deadline, setDeadline] = useState<Date | undefined>(undefined);
-  const [keyResults, setKeyResults] = useState<KeyResult[]>([]);
+  const [objectives, setObjectives] = useState<Objective[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editData, setEditData] = useState<any>(null);
+  const [generatingObjectiveId, setGeneratingObjectiveId] = useState<string | null>(null);
 
-  // Supervisor's key results for alignment
+  // Supervisor's key results for alignment (hardcoded as per screenshot feasibility)
   const supervisorKeyResults = [
     "Increase customer retention rate by 15%",
     "Reduce customer churn by 8% this quarter", 
@@ -53,23 +73,96 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
 
   useEffect(() => {
     if (open && existingOKR) {
-      setObjective(existingOKR.objective || "");
       setAlignment(existingOKR.alignment || "");
       setDeadline(existingOKR.deadline);
-      setKeyResults(existingOKR.keyResults || []);
+      setObjectives(existingOKR.objectives || []);
     } else if (!open) {
       // Reset when closing
-      setObjective("");
       setAlignment("");
       setDeadline(undefined);
-      setKeyResults([]);
+      setObjectives([]);
+      setGeneratingObjectiveId(null);
     }
   }, [open, existingOKR]);
 
-  const generateAIKeyResults = async (obj: string) => {
+  const generateAIObjectiveAndKeyResults = async (input: string, isAlignment: boolean = false) => {
     setIsGenerating(true);
+    
     try {
-      const prompt = `Generate 3-4 short, actionable key results for the objective: "${obj}". Each with full metrics. Return JSON array: [{"text": "short title", "weight": number}]. Weights sum to 100.`;
+      let prompt: string;
+      if (isAlignment) {
+        prompt = `Generate an objective title and 3-4 key results for an employee that contribute to the supervisor's key result: "${input}". 
+        For each key result, provide:
+        1. A title
+        2. A weight (sum of all weights should be 100)
+        3. A metric type (milestone, percentage, numeric, currency, achieved)
+        4. If numeric/percentage/currency: target_value (initial_value is 0)
+        5. If milestone: list of milestones with their titles and weights (sum to key result weight)
+        
+        Return a JSON object with this structure:
+        {
+          "objective": "Objective title",
+          "key_results": [
+            {
+              "title": "Key result title",
+              "weight": 25,
+              "metric_type": "milestone",
+              "milestones": [
+                {"title": "Milestone 1", "weight": 10},
+                {"title": "Milestone 2", "weight": 15}
+              ]
+            },
+            {
+              "title": "Key result title",
+              "weight": 35,
+              "metric_type": "numeric",
+              "target_value": 100
+            },
+            {
+              "title": "Key result title",
+              "weight": 40,
+              "metric_type": "percentage",
+              "target_value": 90
+            }
+          ]
+        }`;
+      } else {
+        prompt = `Generate 3-4 key results for the objective: "${input}". 
+        For each key result, provide:
+        1. A title
+        2. A weight (sum of all weights should be 100)
+        3. A metric type (milestone, percentage, numeric, currency, achieved)
+        4. If numeric/percentage/currency: target_value (initial_value is 0)
+        5. If milestone: list of milestones with their titles and weights (sum to key result weight)
+        
+        Return a JSON object with this structure:
+        {
+          "key_results": [
+            {
+              "title": "Key result title",
+              "weight": 25,
+              "metric_type": "milestone",
+              "milestones": [
+                {"title": "Milestone 1", "weight": 10},
+                {"title": "Milestone 2", "weight": 15}
+              ]
+            },
+            {
+              "title": "Key result title",
+              "weight": 35,
+              "metric_type": "numeric",
+              "target_value": 100
+            },
+            {
+              "title": "Key result title",
+              "weight": 40,
+              "metric_type": "percentage",
+              "target_value": 90
+            }
+          ]
+        }`;
+      }
+
       const { suggestion, error } = await askOkrModel({
         prompt,
         params: { temperature: 0.3 },
@@ -77,230 +170,661 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
 
       if (error) {
         console.error("AI Error:", error);
-        return [];
+        return { title: input, keyResults: [] };
       }
 
-      // Parse response
       let jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
-      const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
       if (jsonMatch) jsonStr = jsonMatch[0];
-      const aiKRs = JSON.parse(jsonStr);
+      
+      const response = JSON.parse(jsonStr);
+      const title = isAlignment ? (response.objective || input) : input;
+      const aiKRs = (isAlignment ? response.key_results : response.key_results) || [];
+      
       if (Array.isArray(aiKRs)) {
-        return aiKRs.map((kr: any, index: number) => ({
-          id: `ai-${Date.now()}-${index}`,
-          text: kr.text || "Untitled",
-          progress: 100,
-          milestones: [],
-          isAI: true,
-          weight: kr.weight || Math.round(100 / aiKRs.length),
-          deadline: undefined
-        }));
+        const keyResults = aiKRs.map((kr: any, index: number) => {
+          const baseKR = {
+            id: `ai-${Date.now()}-${index}`,
+            title: kr.title || "Untitled",
+            progress: 0,
+            metricType: kr.metric_type || "numeric",
+            targetValue: kr.target_value || 100,
+            currentValue: 0,
+            weight: kr.weight || Math.round(100 / aiKRs.length),
+            completed: false
+          };
+          
+          // Handle milestones if metric type is milestone
+          if (kr.metric_type === "milestone" && kr.milestones && Array.isArray(kr.milestones)) {
+            return {
+              ...baseKR,
+              metricType: "milestone",
+              milestones: kr.milestones.map((m: any, mIndex: number) => ({
+                id: `m-${Date.now()}-${index}-${mIndex}`,
+                title: m.title || `Milestone ${mIndex + 1}`,
+                completed: false,
+                weight: m.weight || Math.round(baseKR.weight / kr.milestones.length)
+              }))
+            };
+          }
+          
+          return baseKR;
+        });
+        return { title, keyResults };
       }
-      return [];
+      return { title: input, keyResults: [] };
     } catch (parseError) {
       console.error("Parse error:", parseError);
-      return [];
+      return { title: input, keyResults: [] };
     } finally {
       setIsGenerating(false);
+      setGeneratingObjectiveId(null);
     }
   };
 
   const handleAlignmentChange = async (value: string) => {
     setAlignment(value);
-    setObjective(value);
     
-    const newKRs = await generateAIKeyResults(value);
-    if (newKRs.length > 0) {
-      setKeyResults(newKRs);
+    const { title, keyResults } = await generateAIObjectiveAndKeyResults(value, true);
+    if (keyResults.length > 0) {
+      // Create a new objective with the AI-generated key results
+      const newObjective: Objective = {
+        id: `obj-${Date.now()}`,
+        title,
+        alignment: value,
+        keyResults
+      };
+      setObjectives((prev) => [...prev, newObjective]);
     }
   };
 
-  const handleRegenerateKeyResult = async (id: string, prompt: string) => {
-    setIsGenerating(true);
-    try {
-      const currentKR = keyResults.find(kr => kr.id === id);
-      if (!currentKR) return;
+  const calculateProgress = (keyResult: KeyResult): number => {
+    if (keyResult.metricType === "milestone") {
+      if (!keyResult.milestones || keyResult.milestones.length === 0) return 0;
+      
+      const totalWeight = keyResult.milestones.reduce((sum, m) => sum + m.weight, 0);
+      if (totalWeight === 0) return 0;
+      
+      const completedWeight = keyResult.milestones
+        .filter(m => m.completed)
+        .reduce((sum, m) => sum + m.weight, 0);
+      
+      return Math.round((completedWeight / totalWeight) * 100);
+    }
+    
+    if (keyResult.metricType === "achieved") {
+      return keyResult.completed ? 100 : 0;
+    }
+    
+    if (keyResult.targetValue === 0) return 0;
+    
+    return Math.min(100, Math.round((keyResult.currentValue / keyResult.targetValue) * 100));
+  };
 
-      const regenPrompt = `Regenerate this key result with refinement: "${prompt}". Original: "${currentKR.text}". Return JSON: {"text": "new short text", "weight": number}.`;
-      const { suggestion, error } = await askOkrModel({
-        prompt: regenPrompt,
-        params: { temperature: 0.3 },
-      });
+  const calculateObjectiveProgress = (objective: Objective): number => {
+    if (!objective.keyResults.length) return 0;
+    
+    const totalWeight = objective.keyResults.reduce((sum, kr) => sum + kr.weight, 0);
+    if (totalWeight === 0) return 0;
+    
+    const weightedProgress = objective.keyResults.reduce((sum, kr) => {
+      return sum + (calculateProgress(kr) * kr.weight);
+    }, 0);
+    
+    return Math.round(weightedProgress / totalWeight);
+  };
 
-      if (error) {
-        console.error("AI Error:", error);
-        return;
+  const startEdit = (type: "objective" | "keyResult", objectiveId: string, keyResultId?: string) => {
+    if (type === "objective") {
+      const objective = objectives.find(obj => obj.id === objectiveId);
+      if (objective) {
+        setEditingId(`objective-${objectiveId}`);
+        setEditData({
+          type: "objective",
+          objectiveId,
+          title: objective.title,
+          alignment: objective.alignment || ""
+        });
       }
-
-      // Parse response
-      let jsonStr = String(suggestion).replace(/```json\s*/, '').replace(/```\s*$/, '');
-      const newKR = JSON.parse(jsonStr);
-
-      setKeyResults(keyResults.map(kr => 
-        kr.id === id ? { ...kr, text: newKR.text || kr.text, weight: newKR.weight || kr.weight } : kr
-      ));
-    } catch (parseError) {
-      console.error("Parse error:", parseError);
-    } finally {
-      setIsGenerating(false);
+    } else if (type === "keyResult" && keyResultId) {
+      const objective = objectives.find(obj => obj.id === objectiveId);
+      const keyResult = objective?.keyResults.find(kr => kr.id === keyResultId);
+      
+      if (keyResult) {
+        setEditingId(`keyResult-${keyResultId}`);
+        setEditData({
+          type: "keyResult",
+          objectiveId,
+          keyResultId,
+          title: keyResult.title,
+          metricType: keyResult.metricType,
+          targetValue: keyResult.targetValue,
+          currentValue: keyResult.currentValue,
+          weight: keyResult.weight,
+          completed: keyResult.completed,
+          milestones: keyResult.milestones || []
+        });
+      }
     }
   };
 
-  const handleAddKeyResult = () => {
-    const newKeyResult: KeyResult = {
-      id: Date.now().toString(),
-      text: "",
-      progress: 100,
-      milestones: [],
-      weight: 25,
-      deadline: undefined
+  const saveEdit = () => {
+    if (!editData) return;
+    
+    if (editData.type === "objective") {
+      setObjectives(objectives.map(obj => 
+        obj.id === editData.objectiveId 
+          ? { ...obj, title: editData.title, alignment: editData.alignment }
+          : obj
+      ));
+    } else if (editData.type === "keyResult") {
+      setObjectives(objectives.map(obj => 
+        obj.id === editData.objectiveId 
+          ? { 
+              ...obj, 
+              keyResults: obj.keyResults.map(kr => 
+                kr.id === editData.keyResultId 
+                  ? { 
+                      ...kr, 
+                      title: editData.title,
+                      metricType: editData.metricType,
+                      targetValue: Number(editData.targetValue),
+                      currentValue: Number(editData.currentValue),
+                      weight: Number(editData.weight),
+                      completed: editData.metricType === "achieved" 
+                        ? editData.completed 
+                        : kr.completed,
+                      milestones: editData.milestones || []
+                    }
+                  : kr
+              )
+            }
+          : obj
+      ));
+    }
+    
+    cancelEdit();
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditData(null);
+  };
+
+  const addObjective = () => {
+    const newId = `obj-${Date.now()}`;
+    const newObjective: Objective = {
+      id: newId,
+      title: "New Objective",
+      alignment: "",
+      keyResults: []
     };
-    setKeyResults([...keyResults, newKeyResult]);
+    
+    setObjectives([...objectives, newObjective]);
+    startEdit("objective", newId);
   };
 
-  const handleDeleteKeyResult = (id: string) => {
-    setKeyResults(keyResults.filter(kr => kr.id !== id));
-  };
-
-  const handleUpdateKeyResult = (id: string, text: string) => {
-    setKeyResults(keyResults.map(kr => 
-      kr.id === id ? { ...kr, text } : kr
+  const addKeyResult = (objectiveId: string) => {
+    const newId = `kr-${Date.now()}`;
+    const newKeyResult: KeyResult = {
+      id: newId,
+      title: "New Key Result",
+      metricType: "numeric",
+      targetValue: 100,
+      currentValue: 0,
+      weight: 0, // Will be adjusted later to ensure sum is 100
+      completed: false
+    };
+    
+    setObjectives(objectives.map(obj => 
+      obj.id === objectiveId 
+        ? { ...obj, keyResults: [...obj.keyResults, newKeyResult] }
+        : obj
     ));
+    
+    // Adjust weights to ensure they sum to 100
+    adjustWeights(objectiveId);
+    
+    startEdit("keyResult", objectiveId, newId);
   };
 
-  const handleUpdateKeyResultWeight = (id: string, weight: number) => {
-    setKeyResults(keyResults.map(kr => 
-      kr.id === id ? { ...kr, weight } : kr
-    ));
+  const adjustWeights = (objectiveId: string) => {
+    setObjectives(objectives.map(obj => {
+      if (obj.id !== objectiveId) return obj;
+      
+      const totalKRs = obj.keyResults.length;
+      if (totalKRs === 0) return obj;
+      
+      const equalWeight = Math.round(100 / totalKRs);
+      const remainder = 100 - (equalWeight * totalKRs);
+      
+      const updatedKeyResults = obj.keyResults.map((kr, index) => ({
+        ...kr,
+        weight: index === 0 ? equalWeight + remainder : equalWeight
+      }));
+      
+      return { ...obj, keyResults: updatedKeyResults };
+    }));
   };
 
-  const handleUpdateKeyResultDeadline = (id: string, deadline: Date | undefined) => {
-    setKeyResults(keyResults.map(kr => 
-      kr.id === id ? { ...kr, deadline } : kr
+  const deleteObjective = (objectiveId: string) => {
+    setObjectives(objectives.filter(obj => obj.id !== objectiveId));
+  };
+
+  const deleteKeyResult = (objectiveId: string, keyResultId: string) => {
+    setObjectives(objectives.map(obj => 
+      obj.id === objectiveId 
+        ? { ...obj, keyResults: obj.keyResults.filter(kr => kr.id !== keyResultId) }
+        : obj
     ));
+    
+    // Adjust weights after deletion
+    adjustWeights(objectiveId);
+  };
+
+  const handleInputChange = (field: string, value: any) => {
+    setEditData({ ...editData, [field]: value });
+  };
+
+  const formatMetricValue = (keyResult: KeyResult): string => {
+    switch (keyResult.metricType) {
+      case "milestone":
+        if (!keyResult.milestones || keyResult.milestones.length === 0) return "No milestones";
+        const completed = keyResult.milestones.filter(m => m.completed).length;
+        return `${completed}/${keyResult.milestones.length} milestones`;
+      case "percentage":
+        return `${keyResult.currentValue}% / ${keyResult.targetValue}%`;
+      case "currency":
+        return `$${keyResult.currentValue.toLocaleString()} / $${keyResult.targetValue.toLocaleString()}`;
+      case "achieved":
+        return keyResult.completed ? "Achieved" : "Not Achieved";
+      default:
+        return `${keyResult.currentValue} / ${keyResult.targetValue}`;
+    }
   };
 
   const handleSaveOKR = () => {
     onSave({
-      objective,
-      alignment,
       deadline,
-      keyResults
+      objectives
     });
     onOpenChange(false);
   };
 
-  const handleAddMilestone = (keyResultId: string) => {
-    const newMilestone: Milestone = {
-      id: Date.now().toString(),
-      text: "New Milestone",
-      completed: false
-    };
-    
-    setKeyResults(keyResults.map(kr => 
-      kr.id === keyResultId 
-        ? { ...kr, milestones: [...kr.milestones, newMilestone] }
-        : kr
-    ));
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-center text-xl font-semibold">OKR</DialogTitle>
         </DialogHeader>
         
-        <div className="space-y-6">
-          {/* Objective Section */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium">Objective</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="objective">Objective *</Label>
-                <Input
-                  id="objective"
-                  value={objective}
-                  onChange={(e) => setObjective(e.target.value)}
-                  placeholder="Select alignment or enter custom objective"
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Objective Deadline *</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !deadline && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {deadline ? format(deadline, "PPP") : "Pick a date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={deadline}
+                  onSelect={setDeadline}
+                  initialFocus
                 />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="alignment">Alignment *</Label>
-                <Select value={alignment} onValueChange={handleAlignmentChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select supervisor's key result" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {supervisorKeyResults.map((keyResult, index) => (
-                      <SelectItem key={index} value={keyResult}>{keyResult}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label>Objective Deadline *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !deadline && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {deadline ? format(deadline, "PPP") : "Pick a date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={deadline}
-                      onSelect={setDeadline}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
-          {/* Key Result Section */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium">Key Result</h3>
-              <Button onClick={handleAddKeyResult} className="bg-primary hover:bg-primary/90">
+          <div className="space-y-2">
+            <Label htmlFor="alignment">Select Alignment to Generate Objective</Label>
+            <Select onValueChange={handleAlignmentChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select supervisor's key result" />
+              </SelectTrigger>
+              <SelectContent>
+                {supervisorKeyResults.map((keyResult) => (
+                  <SelectItem key={keyResult} value={keyResult}>{keyResult}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-medium">Objectives and Key Results</h3>
+            <Button onClick={addObjective} className="bg-primary hover:bg-primary/90" disabled={isGenerating}>
+              {isGenerating && generatingObjectiveId ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
                 <Plus className="w-4 h-4 mr-2" />
-                Key Result
-              </Button>
-            </div>
-
-            {isGenerating && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Generating AI key results...
-              </div>
-            )}
-
-            {/* Key Results List */}
-            <div className="space-y-4">
-              {keyResults.map((keyResult) => (
-                <KeyResultItem
-                  key={keyResult.id}
-                  keyResult={keyResult}
-                  onDelete={handleDeleteKeyResult}
-                  onUpdate={handleUpdateKeyResult}
-                  onUpdateWeight={handleUpdateKeyResultWeight}
-                  onUpdateDeadline={handleUpdateKeyResultDeadline}
-                  onAddMilestone={handleAddMilestone}
-                  onRegenerate={keyResult.isAI ? handleRegenerateKeyResult : undefined}
-                />
-              ))}
-            </div>
+              )}
+              Add Objective
+            </Button>
           </div>
+
+          {isGenerating && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Generating AI key results...
+            </div>
+          )}
+
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-100">
+                  <TableHead className="w-12">No.</TableHead>
+                  <TableHead className="w-1/4">Objectives</TableHead>
+                  <TableHead className="w-2/5">Key Results</TableHead>
+                  <TableHead className="w-1/5">Metrics</TableHead>
+                  <TableHead className="w-20">Weight</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {objectives.map((objective, objIndex) => (
+                  <Fragment key={`objective-block-${objective.id}`}>
+                    <TableRow className="bg-gray-50">
+                      <TableCell className="font-medium">{objIndex + 1}</TableCell>
+                      <TableCell>
+                        {editingId === `objective-${objective.id}` ? (
+                          <div className="space-y-2">
+                            <Input
+                              value={editData.title}
+                              onChange={(e) => handleInputChange("title", e.target.value)}
+                            />
+                            <Select
+                              value={editData.alignment}
+                              onValueChange={(v) => handleInputChange("alignment", v)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select alignment" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {supervisorKeyResults.map(kr => (
+                                  <SelectItem key={kr} value={kr}>
+                                    {kr}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              disabled={isGenerating}
+                              onClick={async () => {
+                                const isAlign = !!editData.alignment;
+                                const inp = isAlign ? editData.alignment : editData.title;
+                                setGeneratingObjectiveId(objective.id);
+                                const { title, keyResults } = await generateAIObjectiveAndKeyResults(inp, isAlign);
+                                setEditData((prev: any) => ({ ...prev, title }));
+                                setObjectives(prev => prev.map(obj => 
+                                  obj.id === editData.objectiveId ? { ...obj, keyResults } : obj
+                                ));
+                              }}
+                            >
+                              {isGenerating && generatingObjectiveId === objective.id && <Loader2 className="mr-2 animate-spin" />}
+                              Generate AI Key Results
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="font-semibold">{objective.title}</div>
+                        )}
+                      </TableCell>
+                      <TableCell colSpan={2}></TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          {editingId === `objective-${objective.id}` ? (
+                            <>
+                              <Button size="sm" onClick={saveEdit} className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700">
+                                <Save className="w-4 h-4" />
+                              </Button>
+                              <Button size="sm" onClick={cancelEdit} className="h-8 w-8 p-0 bg-gray-500 hover:bg-gray-600">
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button 
+                                size="sm" 
+                                onClick={() => startEdit("objective", objective.id)} 
+                                className="h-8 w-8 p-0"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                onClick={() => deleteObjective(objective.id)} 
+                                className="h-8 w-8 p-0 bg-red-600 hover:bg-red-700"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                onClick={async () => {
+                                  setGeneratingObjectiveId(objective.id);
+                                  const { title, keyResults } = await generateAIObjectiveAndKeyResults(objective.title, false);
+                                  setObjectives(prev => prev.map(o => o.id === objective.id ? { ...o, title, keyResults } : o));
+                                }} 
+                                className="h-8 w-8 p-0"
+                                disabled={isGenerating}
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                              </Button>
+                            </>
+                          )}
+                          <Button 
+                            size="sm" 
+                            onClick={() => addKeyResult(objective.id)} 
+                            className="h-8 bg-primary hover:bg-primary/90"
+                          >
+                            <Plus className="w-4 h-4 mr-1" />
+                            KR
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    
+                    {objective.keyResults.map((keyResult, krIndex) => (
+                      <Fragment key={`${objective.id}-${keyResult.id}-${krIndex}`}>
+                        <TableRow>
+                          <TableCell></TableCell>
+                          <TableCell></TableCell>
+                          <TableCell>
+                            {editingId === `keyResult-${keyResult.id}` ? (
+                              <div className="space-y-2">
+                                <Input
+                                  value={editData.title}
+                                  onChange={(e) => handleInputChange("title", e.target.value)}
+                                  className="mb-2"
+                                />
+                                <Select 
+                                  value={editData.metricType} 
+                                  onValueChange={(value) => handleInputChange("metricType", value)}
+                                >
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select metric type" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="milestone">Milestone</SelectItem>
+                                    <SelectItem value="percentage">Percentage</SelectItem>
+                                    <SelectItem value="numeric">Numeric</SelectItem>
+                                    <SelectItem value="currency">Currency</SelectItem>
+                                    <SelectItem value="achieved">Achieved</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {editData.metricType === "milestone" ? (
+                                  <div className="space-y-2">
+                                    <Label>Milestones</Label>
+                                    {editData.milestones.map((m: Milestone, index: number) => (
+                                      <div key={m.id} className="flex items-center space-x-2">
+                                        <Input 
+                                          value={m.title} 
+                                          onChange={(e) => {
+                                            const newMilestones = [...editData.milestones];
+                                            newMilestones[index].title = e.target.value;
+                                            handleInputChange("milestones", newMilestones);
+                                          }}
+                                        />
+                                        <Input 
+                                          type="number" 
+                                          value={m.weight} 
+                                          onChange={(e) => {
+                                            const newMilestones = [...editData.milestones];
+                                            newMilestones[index].weight = Number(e.target.value);
+                                            handleInputChange("milestones", newMilestones);
+                                          }}
+                                        />
+                                        <Button 
+                                          variant="destructive" 
+                                          size="sm" 
+                                          onClick={() => {
+                                            const newMilestones = editData.milestones.filter((_: any, i: number) => i !== index);
+                                            handleInputChange("milestones", newMilestones);
+                                          }}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                    <Button 
+                                      onClick={() => {
+                                        const newId = `m-${Date.now()}`;
+                                        const newMilestone = {id: newId, title: "", completed: false, weight: 0};
+                                        handleInputChange("milestones", [...editData.milestones, newMilestone]);
+                                      }}
+                                    >
+                                      <Plus className="mr-2 h-4 w-4" /> Add Milestone
+                                    </Button>
+                                  </div>
+                                ) : editData.metricType === "achieved" ? (
+                                  <div className="space-y-2">
+                                    <Label>Achieved</Label>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={editData.completed} 
+                                      onChange={(e) => handleInputChange("completed", e.target.checked)} 
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="flex space-x-2">
+                                    <div className="flex-1">
+                                      <Label className="text-xs">Current</Label>
+                                      <Input
+                                        type="number"
+                                        value={editData.currentValue}
+                                        onChange={(e) => handleInputChange("currentValue", e.target.value)}
+                                        className="w-full"
+                                      />
+                                    </div>
+                                    <div className="flex-1">
+                                      <Label className="text-xs">Target</Label>
+                                      <Input
+                                        type="number"
+                                        value={editData.targetValue}
+                                        onChange={(e) => handleInputChange("targetValue", e.target.value)}
+                                        className="w-full"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                                <div className="flex-1">
+                                  <Label>Weight</Label>
+                                  <Input 
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={editData.weight}
+                                    onChange={(e) => handleInputChange("weight", e.target.value)}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div>{keyResult.title}</div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {editingId === `keyResult-${keyResult.id}` ? (
+                              null
+                            ) : (
+                              <div>{formatMetricValue(keyResult)}</div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {editingId === `keyResult-${keyResult.id}` ? (
+                              null
+                            ) : (
+                              <div>{keyResult.weight}%</div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex space-x-2">
+                              {editingId === `keyResult-${keyResult.id}` ? (
+                                <>
+                                  <Button size="sm" onClick={saveEdit} className="h-8 w-8 p-0 bg-green-600 hover:bg-green-700">
+                                    <Save className="w-4 h-4" />
+                                  </Button>
+                                  <Button size="sm" onClick={cancelEdit} className="h-8 w-8 p-0 bg-gray-500 hover:bg-gray-600">
+                                    <X className="w-4 h-4" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <>
+                                  <Button 
+                                    size="sm" 
+                                    onClick={() => startEdit("keyResult", objective.id, keyResult.id)} 
+                                    className="h-8 w-8 p-0"
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    onClick={() => deleteKeyResult(objective.id, keyResult.id)} 
+                                    className="h-8 w-8 p-0 bg-red-600 hover:bg-red-700"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        
+                        {/* Milestone rows for milestone key results */}
+                        {keyResult.metricType === "milestone" && keyResult.milestones && keyResult.milestones.map((milestone, mIndex) => (
+                          <TableRow key={`milestone-${milestone.id}`} className="bg-gray-50/50">
+                            <TableCell colSpan={2}></TableCell>
+                            <TableCell className="pl-8">
+                              {milestone.title}
+                            </TableCell>
+                            <TableCell colSpan={2}>
+                              <div className="text-sm text-gray-500">
+                                Weight: {milestone.weight}%
+                              </div>
+                            </TableCell>
+                            <TableCell></TableCell>
+                          </TableRow>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {objectives.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No objectives defined yet. Click "Add Objective" to get started or use the alignment dropdown to generate AI suggestions.
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -314,5 +838,47 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export function AISuggestionCard({
+  suggestion,
+  suggestionCount,
+  onCancel
+}: AISuggestionCardProps) {
+  return (
+    <div className="bg-ai-suggestion border border-ai-icon/20 rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-ai-icon" />
+          <span className="text-sm font-medium text-ai-suggestion-foreground">
+            AI Key Result Suggestion
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs px-3 py-1 h-7 border-ai-icon/30 text-ai-suggestion-foreground"
+          >
+            I have made you {suggestionCount} Suggestions
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            className="h-7 w-7 p-0 hover:bg-ai-icon/10"
+          >
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+      
+      <div className="space-y-3">
+        <p className="text-sm text-ai-suggestion-foreground p-2 rounded bg-ai-icon/5">
+          {suggestion}
+        </p>
+      </div>
+    </div>
   );
 }
