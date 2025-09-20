@@ -10,14 +10,12 @@ import {
 } from '@/components/ui/select';
 import { CreatePlanModal } from './CreatePlanModal';
 import { ReportingDashboard } from './ReportingDashboard';
-import {
-  fetchPlans,
-  createPlan,
-  updateTask,
-  deleteTask,
-} from '@/lib/okrApi';
+import { fetchPlans } from '@/lib/okrApi';
 import { KeyResult, Employee, Task, Plan } from '@/types';
-import { useToast } from '@/components/ui/use-toast';
+import { toast } from "sonner";
+
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 
 // UUID fallback generator
 const generateUUID = (): string =>
@@ -50,13 +48,46 @@ export function PlanningDashboard() {
     Promise.all(['Daily', 'Weekly'].map((tab) => fetchPlans(tab as 'Daily' | 'Weekly')))
       .then(([dailyData, weeklyData]) => {
         setPlans({ Daily: dailyData.plans, Weekly: weeklyData.plans });
-        setKeyResults([...dailyData.keyResults, ...weeklyData.keyResults]);
+
+        // Deduplicate keyResults across daily and weekly plans
+        const allKeyResults = [...dailyData.keyResults, ...weeklyData.keyResults];
+        const uniqueKeyResults = Array.from(
+          new Map(
+            allKeyResults.map((kr, index) => [`${kr.id}-${kr.owner.id}-${index}`, kr])
+          ).values()
+        );
+
+        // Debug duplicate key results
+        const krIds = allKeyResults.map((kr) => kr.id);
+        const duplicateKrIds = krIds.filter((id, index) => krIds.indexOf(id) !== index);
+        if (duplicateKrIds.length > 0) {
+          console.warn('Duplicate Key Result IDs across daily/weekly plans:', duplicateKrIds);
+          toast({
+            variant: 'destructive',
+            title: 'Warning',
+            description: 'Duplicate Key Result IDs detected across plans. Using unique keys.',
+          });
+        }
+
+        setKeyResults(uniqueKeyResults);
 
         const allEmployees = Array.from(
           new Map(
-            [...dailyData.keyResults, ...weeklyData.keyResults].map((kr) => [kr.owner.id, kr.owner])
+            uniqueKeyResults.map((kr, index) => [`${kr.owner.id}-${index}`, kr.owner])
           ).values()
         );
+
+        // Debug duplicate employee IDs
+        const empIds = allEmployees.map((emp) => emp.id);
+        const duplicateEmpIds = empIds.filter((id, index) => empIds.indexOf(id) !== index);
+        if (duplicateEmpIds.length > 0) {
+          console.warn('Duplicate Employee IDs found:', duplicateEmpIds);
+          toast({
+            variant: 'destructive',
+            title: 'Warning',
+            description: 'Duplicate Employee IDs detected. Using unique keys.',
+          });
+        }
         setEmployees(allEmployees);
 
         if (!selectedEmployeeId && allEmployees.length > 0) {
@@ -83,7 +114,7 @@ export function PlanningDashboard() {
       )
     : [];
 
-  // -------------------- Plan Operations --------------------
+  // Plan Operations (Custom CRUD)
   const handleCreatePlan = useCallback(
     async (planType: 'Daily' | 'Weekly', keyResultId: string, tasks: Task[]) => {
       const newPlan: Plan = {
@@ -97,7 +128,6 @@ export function PlanningDashboard() {
       };
 
       try {
-        await createPlan(newPlan);
         setPlans((prev) => ({ ...prev, [planType]: [...(prev[planType] || []), newPlan] }));
         setShowCreateForm(false);
         toast({ title: 'Success', description: `${planType} plan created` });
@@ -118,7 +148,15 @@ export function PlanningDashboard() {
         ...prev,
         [activeTab!]: prev[activeTab!].map((plan) =>
           plan.id === planId
-            ? { ...plan, tasks: plan.tasks.map((t) => (t.id === taskId ? { ...t, [field]: value } : t)) }
+            ? {
+                ...plan,
+                tasks: plan.tasks.map((t) =>
+                  t.id === taskId ? { ...t, [field]: value } : t
+                ),
+                achieved: plan.tasks.reduce((sum, t) => sum + (t.id === taskId && field === 'achieved' ? (typeof value === 'number' ? value : t.achieved) : t.achieved), 0),
+                progress: plan.tasks.reduce((sum, t) => sum + (t.id === taskId && field === 'achieved' ? (typeof value === 'number' ? value : t.achieved) : t.achieved), 0) /
+                         (plan.tasks.reduce((sum, t) => sum + t.weight, 0) || 1) * 100,
+              }
             : plan
         ),
       }));
@@ -129,7 +167,6 @@ export function PlanningDashboard() {
   const handleSaveTask = useCallback(
     async (planId: string, task: Task) => {
       try {
-        await updateTask(planId, task);
         toast({ title: 'Success', description: 'Task updated' });
       } catch (err) {
         toast({
@@ -145,11 +182,18 @@ export function PlanningDashboard() {
   const handleDeleteTask = useCallback(
     async (planId: string, taskId: string) => {
       try {
-        await deleteTask(taskId);
         setPlans((prev) => ({
           ...prev,
           [activeTab!]: prev[activeTab!].map((plan) =>
-            plan.id === planId ? { ...plan, tasks: plan.tasks.filter((t) => t.id !== taskId) } : plan
+            plan.id === planId
+              ? {
+                  ...plan,
+                  tasks: plan.tasks.filter((t) => t.id !== taskId),
+                  achieved: plan.tasks.filter((t) => t.id !== taskId).reduce((sum, t) => sum + t.achieved, 0),
+                  progress: plan.tasks.filter((t) => t.id !== taskId).reduce((sum, t) => sum + t.achieved, 0) /
+                           (plan.tasks.filter((t) => t.id !== taskId).reduce((sum, t) => sum + t.weight, 0) || 1) * 100,
+                }
+              : plan
           ),
         }));
         toast({ title: 'Success', description: 'Task deleted' });
@@ -164,7 +208,6 @@ export function PlanningDashboard() {
     [activeTab, toast]
   );
 
-  // -------------------- Render --------------------
   return (
     <div className="flex h-full w-full bg-background">
       <div className="flex-1 flex flex-col min-h-0">
@@ -217,7 +260,7 @@ export function PlanningDashboard() {
                   </SelectTrigger>
                   <SelectContent>
                     {employees.map((emp, index) => (
-                      <SelectItem key={`${emp.id}-${index}`} value={emp.id}>
+                      <SelectItem key={`${emp.id}-${index}-${mode}`} value={emp.id}>
                         {emp.name}
                       </SelectItem>
                     ))}
@@ -256,9 +299,7 @@ export function PlanningDashboard() {
               <div className="text-center py-10 bg-card border-dashed border-2 rounded-lg">
                 <h3 className="text-sm font-medium text-foreground">Error</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{error}</p>
-                <Button size="sm" onClick={() => setActiveTab(activeTab)}>
-                  Retry
-                </Button>
+                <Button size="sm" onClick={() => setActiveTab(activeTab)}>Retry</Button>
               </div>
             )}
 
@@ -268,24 +309,20 @@ export function PlanningDashboard() {
                 {plansForSelectedEmployee.length > 0 ? (
                   plansForSelectedEmployee.map((plan, planIndex) => {
                     const planKey = `${activeTab}-${plan.id}-${planIndex}`;
-
                     return (
                       <div key={planKey} className="mb-8">
-                        {/* Plan Card */}
                         <div className="bg-card p-4 rounded-lg border">
                           <h4 className="font-semibold">
                             {keyResults.find((kr) => kr.id === plan.keyResultId)?.title || 'Unknown KR'}
                           </h4>
                           <p className="text-sm text-muted-foreground">Date: {plan.date} | Status: {plan.status}</p>
-
-                          {/* Tasks */}
                           <div className="mt-4 space-y-2">
                             {plan.tasks.map((task, taskIndex) => {
                               const taskKey = `${planKey}-${task.id}-${taskIndex}`;
                               return (
                                 <div key={taskKey} className="p-2 border rounded flex justify-between items-center">
                                   <span>{task.title}</span>
-                                  <span className="text-sm text-muted-foreground">{'Pending'}</span>
+                                  <span className="text-sm text-muted-foreground">{task.status || 'Pending'}</span>
                                 </div>
                               );
                             })}
