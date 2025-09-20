@@ -1,4 +1,4 @@
-exports.handler = async (event) => {
+export const handler = async (event) => {
   console.log('Auth function called with event:', event);
 
   if (event.httpMethod !== 'POST') {
@@ -14,7 +14,6 @@ exports.handler = async (event) => {
     const apiKey = process.env.FIREBASE_API_KEY;
 
     if (!email || !password || !apiKey) {
-      console.error('Missing required env or payload:', { email, password, apiKey: !!apiKey });
       return {
         statusCode: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -30,13 +29,9 @@ exports.handler = async (event) => {
     });
 
     const text = await resp.text();
-    console.log('Raw auth response text:', text);
-
     let data;
-    try {
-      data = JSON.parse(text);
-    } catch (err) {
-      console.error('Failed to parse Firebase Auth response as JSON:', err);
+    try { data = JSON.parse(text); } 
+    catch (err) {
       return {
         statusCode: 500,
         headers: { 'Content-Type': 'application/json' },
@@ -45,7 +40,6 @@ exports.handler = async (event) => {
     }
 
     if (!resp.ok) {
-      console.error('Firebase Auth error:', data);
       return {
         statusCode: resp.status,
         headers: { 'Content-Type': 'application/json' },
@@ -64,13 +58,10 @@ exports.handler = async (event) => {
       }),
     };
   } catch (error) {
-    console.error('Auth function error:', error instanceof Error ? error.message : String(error));
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        error: error instanceof Error ? error.message : 'Internal server error',
-      }),
+      body: JSON.stringify({ error: error instanceof Error ? error.message : 'Internal server error' }),
     };
   }
 };

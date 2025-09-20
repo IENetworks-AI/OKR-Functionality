@@ -322,7 +322,7 @@ export function PlanningDashboard() {
                               return (
                                 <div key={taskKey} className="p-2 border rounded flex justify-between items-center">
                                   <span>{task.title}</span>
-                                  <span className="text-sm text-muted-foreground">{task.status || 'Pending'}</span>
+                                  <span className="text-sm text-muted-foreground">Pending</span>
                                 </div>
                               );
                             })}

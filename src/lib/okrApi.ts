@@ -1,4 +1,4 @@
-import { KeyResult, Task, Plan, WeeklyPlan } from '@/types';
+import { KeyResult, Task, Plan } from '@/types';
 
 // Example user map
 const userMap: Record<string, { name: string; role: string }> = {
@@ -9,7 +9,7 @@ const userMap: Record<string, { name: string; role: string }> = {
 let authToken: string | null = null;
 let tokenExpiry: number = 0;
 
-// Auth Token (Firebase login)
+/* ========================= 🔐 AUTH ========================= */
 export async function getAuthToken(): Promise<string> {
   const now = Date.now();
   if (authToken && now < tokenExpiry) return authToken;
@@ -46,7 +46,7 @@ export async function getAuthToken(): Promise<string> {
   }
 }
 
-// Fetch Plans
+/* ========================= 📊 PLANS ========================= */
 export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
   keyResults: KeyResult[];
   plans: Plan[];
@@ -56,7 +56,7 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
     : import.meta.env.VITE_WEEKLY_PLAN_ID;
 
   const tenantId = import.meta.env.VITE_TENANT_ID;
-  const baseUrl = import.meta.env.VITE_API_BASE_URL; // Set to 'https://selamnew-api.example.com'
+  const baseUrl = import.meta.env.VITE_API_BASE_URL;
 
   if (!planId || !tenantId || !baseUrl) throw new Error('Missing env variables for fetching plans');
 
@@ -80,19 +80,9 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
     const tasks: ApiTask[] = await resp.json();
     console.log(`Raw API response for ${planType} plans:`, tasks);
 
-    // Deduplicate tasks by id
+    // Deduplicate tasks
     const uniqueTasks = Array.from(new Map(tasks.map((t) => [t.id, t])).values());
-    if (tasks.length !== uniqueTasks.length) {
-      console.warn(`Removed ${tasks.length - uniqueTasks.length} duplicate tasks in ${planType} plans`);
-    }
     if (!uniqueTasks.length) return { keyResults: [], plans: [] };
-
-    // Debug duplicate task IDs
-    const taskIds = uniqueTasks.map((t) => t.id);
-    const duplicateTaskIds = taskIds.filter((id, index) => taskIds.indexOf(id) !== index);
-    if (duplicateTaskIds.length > 0) {
-      console.warn(`Duplicate Task IDs in ${planType} plans:`, duplicateTaskIds);
-    }
 
     const tasksByKR = new Map<string, Task[]>();
     const uniqueKeyResults = new Map<string, KeyResult>();
@@ -105,11 +95,10 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
       const objUserId = apiTask.keyResult.objective.userId;
       const userInfo = userMap[objUserId] || { name: 'Unknown', role: 'Unknown' };
 
-      // Use a composite key to ensure uniqueness across plans
       const uniqueKrId = `${krId}-${objUserId}-${planType}-${index}`;
       if (!uniqueKeyResults.has(uniqueKrId)) {
         uniqueKeyResults.set(uniqueKrId, {
-          id: apiTask.keyResult.id || `kr-${planType}-${index}`, // Fallback ID
+          id: apiTask.keyResult.id || `kr-${planType}-${index}`,
           title: apiTask.keyResult.title || 'Untitled Key Result',
           owner: { id: objUserId, name: userInfo.name, role: userInfo.role },
           objective: apiTask.keyResult.objective.title || 'Untitled Objective',
@@ -127,21 +116,11 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
         priority: priority as 'High' | 'Medium' | 'Low',
         weight: parseFloat(apiTask.weight) || 0,
         parentTaskId: apiTask.parentTask?.id,
-        status: apiTask.status || '',
       };
 
-      if (!tasksByKR.has(krId)) {
-        tasksByKR.set(krId, []);
-      }
+      if (!tasksByKR.has(krId)) tasksByKR.set(krId, []);
       tasksByKR.get(krId)!.push(task);
     });
-
-    // Debug duplicate Key Result IDs
-    const krIds = Array.from(uniqueKeyResults.keys());
-    const duplicateKrIds = krIds.filter((id, index) => krIds.indexOf(id) !== index);
-    if (duplicateKrIds.length > 0) {
-      console.warn(`Duplicate Key Result IDs in ${planType} plans:`, duplicateKrIds);
-    }
 
     const plans: Plan[] = [];
     tasksByKR.forEach((groupTasks, krId) => {
@@ -169,20 +148,50 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
   }
 }
 
-// AI Suggestion
+/* ========================= 🤖 AI MODELS ========================= */
 export type OkrSuggestParams = {
   prompt: string;
   context?: any;
   params?: Record<string, any>;
+  provider?: 'gemini' | 'mistral';
 };
 
 export type OkrSuggestResponse = {
-  suggestion: string | any;
+  suggestion: any;
   raw?: any;
   error?: string;
 };
 
-export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
+// 🚀 Mistral API integration
+export async function generateKeyResults(objective: string): Promise<OkrSuggestResponse> {
+  try {
+    const baseUrl = import.meta.env.VITE_OKR_API_BASE_URL || 'http://139.185.33.139';
+    const resp = await fetch(`${baseUrl}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: objective }),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Mistral API failed (${resp.status}): ${text}`);
+    }
+
+    const data = await resp.json();
+    return { suggestion: data.answer?.["Key Results"] || [], raw: data };
+  } catch (err: any) {
+    console.error('Mistral API error:', err.message);
+    return { error: err.message, suggestion: [] };
+  }
+}
+
+// 🔄 Unified entry point
+export async function askOkrModel({ prompt, context, params, provider = 'gemini' }: OkrSuggestParams): Promise<OkrSuggestResponse> {
+  if (provider === 'mistral') {
+    return generateKeyResults(prompt);
+  }
+
+  // Gemini (default)
   try {
     const modelApiUrl =
       import.meta.env.MODEL_API_URL ||
@@ -190,7 +199,6 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
     const modelApiKey = import.meta.env.MODEL_API_KEY;
 
     if (!modelApiKey) {
-      console.error('Missing MODEL_API_KEY');
       return { error: 'Missing MODEL_API_KEY', suggestion: '' };
     }
 
@@ -206,11 +214,9 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
       generationConfig: {
         temperature: params?.temperature ?? 0.3,
         maxOutputTokens: params?.maxOutputTokens ?? 1000,
-        response_mime_type: 'application/json', // Force JSON output
+        response_mime_type: 'application/json',
       },
     };
-
-    console.log('Sending Gemini API request:', { prompt, context });
 
     const resp = await fetch(modelApiUrl, {
       method: 'POST',
@@ -222,49 +228,29 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
     });
 
     const text = await resp.text();
-    console.log('Gemini API raw response:', text);
-
     let data;
-    const isJson = (resp.headers.get('content-type') || '').includes('application/json');
-    if (isJson) {
-      try {
-        data = JSON.parse(text);
-      } catch (parseError) {
-        console.error('Failed to parse Gemini API response:', parseError);
-        return { error: 'Invalid JSON response from Model API', suggestion: '', raw: text };
-      }
-    } else {
-      console.error('Non-JSON response from Gemini API:', text);
-      return { error: 'Non-JSON response from Model API', suggestion: '', raw: text };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { error: 'Invalid JSON from Gemini', suggestion: '', raw: text };
     }
 
     if (!resp.ok) {
-      console.error('Gemini API error:', data?.error?.message || text);
       return {
-        error: isJson ? data?.error?.message || text : `HTTP ${resp.status}: ${text || resp.statusText}`,
+        error: data?.error?.message || text,
         suggestion: '',
-        raw: data || text,
+        raw: data,
       };
     }
 
     const suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!suggestion) {
-      console.error('No suggestion found in Gemini API response:', data);
-      return { error: 'No suggestion found in API response', suggestion: '', raw: data };
-    }
-
     return { suggestion, raw: data };
-  } catch (networkError: any) {
-    console.error('Gemini API network error:', networkError);
-    return {
-      error: networkError?.message || 'Network error occurred',
-      suggestion: '',
-      raw: networkError,
-    };
+  } catch (err: any) {
+    return { error: err.message || 'Gemini API network error', suggestion: '' };
   }
 }
 
-// API response interfaces
+/* ========================= 📦 API Types ========================= */
 interface ApiTask {
   id: string;
   task: string;
