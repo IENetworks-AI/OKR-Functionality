@@ -1,17 +1,37 @@
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Settings, BookOpen, DollarSign, Clock, BarChart3, Target, Calendar, Users, Download, Plus, Edit2 } from "lucide-react";
+import { ChevronLeft, Settings, BookOpen, DollarSign, Clock, BarChart3, Target, Calendar, Users, Download, Plus, Edit2, RefreshCw } from "lucide-react";
 import { OKRModal } from "./okr/OKRModal";
 import { ChatBot } from "./chat/ChatBot";
 import { PlanningDashboard } from "./PlanningDashboard";
 import { ReportingDashboard } from "./ReportingDashboard";
 import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { generateAIObjectiveAndKeyResults } from "@/lib/okrAi";
 
 interface SidebarItem {
   icon: any;
   label: string;
   children?: SidebarItem[];
+}
+
+interface Objective {
+  id: string;
+  title: string;
+  alignment: string;
+  deadline?: Date;
+  keyResults: KeyResult[];
+}
+
+interface KeyResult {
+  id: string;
+  title: string;
+  metricType: "milestone" | "percentage" | "numeric" | "currency" | "achieved";
+  targetValue: number;
+  currentValue: number;
+  weight: number;
+  completed: boolean;
 }
 
 const sidebarItems: SidebarItem[] = [
@@ -60,8 +80,8 @@ export function Layout() {
   const [expandedItems, setExpandedItems] = useState<string[]>(["OKR"]);
   const [activeItem, setActiveItem] = useState("OKR");
   const [showOKRModal, setShowOKRModal] = useState(false);
-  const [currentOKR, setCurrentOKR] = useState<any | undefined>(undefined);
-  const [okrs, setOkrs] = useState<any[]>([]);
+  const [currentOKR, setCurrentOKR] = useState<Objective | undefined>(undefined);
+  const [objectives, setObjectives] = useState<Objective[]>([]);
   const [activeTab, setActiveTab] = useState("My OKR");
 
   const toggleExpanded = (label: string) => {
@@ -108,20 +128,87 @@ export function Layout() {
   };
 
   const handleSaveOKR = (savedOkr: any) => {
+    const incoming: Objective[] = (savedOkr?.objectives || []).map((o: any) => ({
+      id: o.id,
+      title: o.title,
+      alignment: o.alignment || "",
+      deadline: savedOkr.deadline,
+      keyResults: o.keyResults || [],
+    }));
+
     if (currentOKR) {
-      // Update existing
-      setOkrs(okrs.map(okr => okr === currentOKR ? savedOkr : okr));
+      // Replace current objective with the edited one (use first incoming if multiple)
+      const replacement = incoming[0] || {
+        id: currentOKR.id,
+        title: currentOKR.title,
+        alignment: currentOKR.alignment || "",
+        deadline: savedOkr.deadline ?? currentOKR.deadline,
+        keyResults: currentOKR.keyResults || [],
+      };
+
+      const remaining = incoming.slice(1);
+
+      setObjectives(prev => {
+        const updated = prev.map(obj => (obj.id === currentOKR.id ? replacement : obj));
+        // Append any additional new objectives that don't already exist
+        const additional = remaining.filter(n => !updated.some(u => u.id === n.id));
+        return [...updated, ...additional];
+      });
     } else {
-      // Add new
-      setOkrs([...okrs, savedOkr]);
+      // Creating new: append all incoming objectives
+      setObjectives(prev => [...prev, ...incoming]);
     }
+
     setCurrentOKR(undefined);
     setShowOKRModal(false);
   };
 
-  const handleEditOKR = (okr: any) => {
+  const handleEditOKR = (okr: Objective) => {
     setCurrentOKR(okr);
     setShowOKRModal(true);
+  };
+
+  const handleRegenerateOKR = async (objective: Objective) => {
+    const { title, keyResults } = await generateAIObjectiveAndKeyResults(objective.title, false);
+    setObjectives(prev => prev.map(o => o.id === objective.id ? { ...o, title, keyResults } : o));
+  };
+
+  const calculateProgress = (keyResult: KeyResult): number => {
+    if (keyResult.metricType === "milestone" || keyResult.metricType === "achieved") {
+      return keyResult.completed ? 100 : 0;
+    }
+    
+    if (keyResult.targetValue === 0) return 0;
+    
+    return Math.min(100, Math.round((keyResult.currentValue / keyResult.targetValue) * 100));
+  };
+
+  const calculateObjectiveProgress = (objective: Objective): number => {
+    if (!objective.keyResults.length) return 0;
+    
+    const totalWeight = objective.keyResults.reduce((sum, kr) => sum + kr.weight, 0);
+    if (totalWeight === 0) return 0;
+    
+    const weightedProgress = objective.keyResults.reduce((sum, kr) => {
+      return sum + (calculateProgress(kr) * kr.weight);
+    }, 0);
+    
+    return Math.round(weightedProgress / totalWeight);
+  };
+
+  const formatMetricValue = (keyResult: KeyResult): string => {
+    switch (keyResult.metricType) {
+      case "milestone":
+        return keyResult.completed ? "Completed" : "Not Completed";
+      case "percentage":
+        return `${keyResult.currentValue}% / ${keyResult.targetValue}%`;
+      case "currency":
+        return `$${keyResult.currentValue} / $${keyResult.targetValue}`;
+      case "achieved":
+        return keyResult.completed ? "Achieved" : "Not Achieved";
+      default:
+        return `${keyResult.currentValue} / ${keyResult.targetValue}`;
+    }
   };
 
   const renderContent = () => {
@@ -144,7 +231,7 @@ export function Layout() {
                 <ChevronLeft className="w-4 h-4" />
               </Button>
               <div>
-                <h1 className="text-xl font-semibold">Objective</h1>
+                <h1 className="text-xl font-semibold">Objectives and Key Results</h1>
                 <p className="text-sm text-muted-foreground">Employee's objective setting up</p>
               </div>
             </div>
@@ -205,8 +292,10 @@ export function Layout() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="milestone">Milestone</SelectItem>
-                <SelectItem value="target">Target</SelectItem>
-                <SelectItem value="metric">Metric</SelectItem>
+                <SelectItem value="percentage">Percentage</SelectItem>
+                <SelectItem value="numeric">Numeric</SelectItem>
+                <SelectItem value="currency">Currency</SelectItem>
+                <SelectItem value="achieved">Achieved</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -231,37 +320,81 @@ export function Layout() {
           </div>
 
           {/* Objective Cards */}
-          <div className="grid grid-cols-4 gap-6">
-            {okrs.length > 0 ? (
-              okrs.map((okr, index) => (
-                <div key={index} className="bg-card border border-border rounded-lg p-6 relative">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {objectives.length > 0 ? (
+              objectives.map((objective, index) => (
+                <div key={objective.id} className="bg-card border border-border rounded-lg p-6 relative">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-10 h-8 w-8"
+                    onClick={() => handleRegenerateOKR(objective)}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="absolute top-2 right-2 h-8 w-8"
-                    onClick={() => handleEditOKR(okr)}
+                    onClick={() => handleEditOKR(objective)}
                   >
                     <Edit2 className="w-4 h-4" />
                   </Button>
-                  <h3 className="font-semibold mb-2">{okr.objective}</h3>
-                  <p className="text-sm text-muted-foreground mb-1">Aligned to: {okr.alignment}</p>
-                  {okr.deadline && (
+                  
+                  <h3 className="font-semibold mb-2 text-lg">{objective.title}</h3>
+                  <p className="text-sm text-muted-foreground mb-1">Aligned to: {objective.alignment}</p>
+                  {objective.deadline && (
                     <p className="text-sm text-muted-foreground mb-4">
-                      Deadline: {format(okr.deadline, "PPP")}
+                      Deadline: {format(objective.deadline, "PPP")}
                     </p>
                   )}
+                  
+                  {/* Progress bar */}
+                  <div className="mb-4">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span>Progress</span>
+                      <span>{calculateObjectiveProgress(objective)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div 
+                        className="bg-blue-600 h-2.5 rounded-full" 
+                        style={{ width: `${calculateObjectiveProgress(objective)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  
                   <div className="mt-4 pt-4 border-t border-border">
-                    <h4 className="text-sm font-medium mb-2">Key Results:</h4>
-                    {okr.keyResults.map((kr: any) => (
-                      <p key={kr.id} className="text-sm mb-1">
-                        {kr.text} ({kr.weight}%)
-                      </p>
-                    ))}
+                    <h4 className="text-sm font-medium mb-3">Key Results:</h4>
+                    <div className="space-y-3">
+                      {objective.keyResults.map((kr) => (
+                        <div key={kr.id} className="text-sm">
+                          <div className="font-medium mb-1">{kr.title}</div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              {formatMetricValue(kr)} ({kr.weight}%)
+                            </span>
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              calculateProgress(kr) === 100 
+                                ? "bg-green-100 text-green-800" 
+                                : "bg-blue-100 text-blue-800"
+                            }`}>
+                              {calculateProgress(kr)}%
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                            <div 
+                              className="bg-blue-600 h-1.5 rounded-full" 
+                              style={{ width: `${calculateProgress(kr)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ))
             ) : (
-              [1, 2, 3, 4].map((item) => (
+              [1, 2, 3].map((item) => (
                 <div key={item} className="bg-card border border-border rounded-lg p-6">
                   <div className="space-y-4">
                     <div className="h-4 bg-muted rounded animate-pulse" />
@@ -269,7 +402,8 @@ export function Layout() {
                     <div className="h-4 bg-muted rounded animate-pulse w-1/2" />
                   </div>
                   <div className="mt-6 pt-4 border-t border-border">
-                    <div className="h-3 bg-muted rounded animate-pulse w-full" />
+                    <div className="h-3 bg-muted rounded animate-pulse w-full mb-2" />
+                    <div className="h-3 bg-muted rounded animate-pulse w-3/4" />
                   </div>
                 </div>
               ))

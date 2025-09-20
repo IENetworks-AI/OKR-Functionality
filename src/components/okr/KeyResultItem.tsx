@@ -1,30 +1,14 @@
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { X, Calendar, Plus, RefreshCw, Sparkles, CalendarIcon } from "lucide-react";
-import { format } from "date-fns";
+import React, { useState } from "react";
 import { cn } from "@/lib/utils";
-
-interface Milestone {
-  id: string;
-  text: string;
-  completed: boolean;
-}
-
-interface KeyResult {
-  id: string;
-  text: string;
-  progress: number;
-  milestones: Milestone[];
-  isAI?: boolean;
-  weight: number;
-  deadline?: Date;
-}
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import { Sparkles, X, RefreshCw, Plus, Calendar as CalendarIcon } from "lucide-react";
+import { KeyResult } from "@/types";
 
 interface KeyResultItemProps {
   keyResult: KeyResult;
@@ -32,7 +16,11 @@ interface KeyResultItemProps {
   onUpdate: (id: string, text: string) => void;
   onUpdateWeight: (id: string, weight: number) => void;
   onUpdateDeadline: (id: string, deadline: Date | undefined) => void;
+  onUpdateMetricType: (id: string, metric_type: string) => void;
+  onUpdateValues: (id: string, initial_value: number, target_value: number) => void;
   onAddMilestone: (keyResultId: string) => void;
+  onUpdateMilestone: (keyResultId: string, milestoneId: string, text: string) => void;
+  onDeleteMilestone: (keyResultId: string, milestoneId: string) => void;
   onRegenerate?: (id: string, prompt: string) => void;
 }
 
@@ -42,7 +30,11 @@ export function KeyResultItem({
   onUpdate, 
   onUpdateWeight,
   onUpdateDeadline,
+  onUpdateMetricType,
+  onUpdateValues,
   onAddMilestone,
+  onUpdateMilestone,
+  onDeleteMilestone,
   onRegenerate 
 }: KeyResultItemProps) {
   const [isEditing, setIsEditing] = useState(false);
@@ -51,6 +43,10 @@ export function KeyResultItem({
   const [regeneratePrompt, setRegeneratePrompt] = useState("");
   const [isEditingWeight, setIsEditingWeight] = useState(false);
   const [editWeight, setEditWeight] = useState(keyResult.weight.toString());
+  const [isEditingInitial, setIsEditingInitial] = useState(false);
+  const [editInitial, setEditInitial] = useState(keyResult.initial_value?.toString() || "0");
+  const [isEditingTarget, setIsEditingTarget] = useState(false);
+  const [editTarget, setEditTarget] = useState(keyResult.target_value?.toString() || "100");
 
   const handleEdit = () => {
     if (isEditing) {
@@ -69,6 +65,26 @@ export function KeyResultItem({
     setIsEditingWeight(!isEditingWeight);
   };
 
+  const handleEditInitial = () => {
+    if (isEditingInitial) {
+      const initialValue = parseInt(editInitial);
+      if (!isNaN(initialValue)) {
+        onUpdateValues(keyResult.id, initialValue, keyResult.target_value || 100);
+      }
+    }
+    setIsEditingInitial(!isEditingInitial);
+  };
+
+  const handleEditTarget = () => {
+    if (isEditingTarget) {
+      const targetValue = parseInt(editTarget);
+      if (!isNaN(targetValue)) {
+        onUpdateValues(keyResult.id, keyResult.initial_value || 0, targetValue);
+      }
+    }
+    setIsEditingTarget(!isEditingTarget);
+  };
+
   const handleRegenerate = () => {
     if (onRegenerate && regeneratePrompt.trim()) {
       onRegenerate(keyResult.id, regeneratePrompt);
@@ -76,6 +92,15 @@ export function KeyResultItem({
       setShowRegenerateDialog(false);
     }
   };
+
+  const metricTypes = [
+    { value: "numeric", label: "Numeric" },
+    { value: "percentage", label: "Percentage" },
+    { value: "milestone", label: "Milestone" },
+    { value: "achieved", label: "Achieved" },
+    { value: "currency", label: "Currency" },
+    { value: "target", label: "Target" }
+  ];
 
   return (
     <div className="border border-border rounded-lg p-4 space-y-3">
@@ -118,16 +143,17 @@ export function KeyResultItem({
         
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Select defaultValue="milestone">
+            <Select 
+              value={keyResult.metric_type || "numeric"} 
+              onValueChange={(value) => onUpdateMetricType(keyResult.id, value)}
+            >
               <SelectTrigger className="w-32 h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="milestone">Milestone</SelectItem>
-                <SelectItem value="target">Target</SelectItem>
-                <SelectItem value="metric">Metric</SelectItem>
-                <SelectItem value="numeric">Numeric</SelectItem>
-                <SelectItem value="currency">Currency</SelectItem>
+                {metricTypes.map(type => (
+                  <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             
@@ -163,11 +189,11 @@ export function KeyResultItem({
                     keyResult.deadline && "text-primary"
                   )}
                 >
-                  <Calendar className="w-4 h-4" />
+                  <CalendarIcon className="w-4 h-4" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="end">
-                <CalendarComponent
+                <Calendar
                   mode="single"
                   selected={keyResult.deadline}
                   onSelect={(date) => onUpdateDeadline(keyResult.id, date)}
@@ -232,30 +258,99 @@ export function KeyResultItem({
         </div>
       </div>
       
+      {/* Metric Values */}
+      {keyResult.metric_type && keyResult.metric_type !== "milestone" && keyResult.metric_type !== "achieved" && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">From:</span>
+          {isEditingInitial ? (
+            <Input
+              value={editInitial}
+              onChange={(e) => setEditInitial(e.target.value)}
+              className="w-16 h-7 text-xs"
+              onBlur={handleEditInitial}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleEditInitial();
+                }
+              }}
+              autoFocus
+            />
+          ) : (
+            <span 
+              className="font-medium cursor-pointer hover:bg-muted px-1 rounded"
+              onClick={handleEditInitial}
+            >
+              {keyResult.initial_value}
+            </span>
+          )}
+          
+          <span className="text-muted-foreground">to:</span>
+          {isEditingTarget ? (
+            <Input
+              value={editTarget}
+              onChange={(e) => setEditTarget(e.target.value)}
+              className="w-16 h-7 text-xs"
+              onBlur={handleEditTarget}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleEditTarget();
+                }
+              }}
+              autoFocus
+            />
+          ) : (
+            <span 
+              className="font-medium cursor-pointer hover:bg-muted px-1 rounded"
+              onClick={handleEditTarget}
+            >
+              {keyResult.target_value}
+            </span>
+          )}
+          
+          {keyResult.metric_type === "percentage" && <span>%</span>}
+          {keyResult.metric_type === "currency" && <span>$</span>}
+        </div>
+      )}
+      
       {/* Milestones */}
-      {keyResult.milestones.length > 0 && (
+      {keyResult.metric_type === "milestone" && keyResult.milestones.length > 0 && (
         <div className="ml-6 space-y-2">
           {keyResult.milestones.map((milestone) => (
-            <div key={milestone.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div key={milestone.id} className="flex items-center gap-2 text-sm">
               <div className="w-2 h-2 rounded-full bg-muted-foreground/30" />
-              {milestone.text}
+              <Input
+                value={milestone.text}
+                onChange={(e) => onUpdateMilestone(keyResult.id, milestone.id, e.target.value)}
+                className="h-7 text-xs flex-1"
+              />
+              <span className="text-muted-foreground text-xs">{milestone.weight}%</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDeleteMilestone(keyResult.id, milestone.id)}
+                className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive"
+              >
+                <X className="w-3 h-3" />
+              </Button>
             </div>
           ))}
         </div>
       )}
       
       {/* Add Milestone Button */}
-      <div className="ml-6">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onAddMilestone(keyResult.id)}
-          className="h-8 text-xs text-primary hover:bg-primary/10"
-        >
-          <Plus className="w-3 h-3 mr-1" />
-          Add Milestone
-        </Button>
-      </div>
+      {keyResult.metric_type === "milestone" && (
+        <div className="ml-6">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onAddMilestone(keyResult.id)}
+            className="h-8 text-xs text-primary hover:bg-primary/10"
+          >
+            <Plus className="w-3 h-3 mr-1" />
+            Add Milestone
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
