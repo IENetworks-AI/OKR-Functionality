@@ -162,10 +162,10 @@ export type OkrSuggestResponse = {
   error?: string;
 };
 
-// 🚀 Mistral API integration
+// 🚀 Backend API integration (forced to 139.185.33.139)
 export async function generateKeyResults(objective: string): Promise<OkrSuggestResponse> {
   try {
-    const baseUrl = import.meta.env.VITE_OKR_API_BASE_URL || 'http://139.185.33.139';
+    const baseUrl = 'http://139.185.33.139';
     const resp = await fetch(`${baseUrl}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -174,79 +174,36 @@ export async function generateKeyResults(objective: string): Promise<OkrSuggestR
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
-      throw new Error(`Mistral API failed (${resp.status}): ${text}`);
+      throw new Error(`Backend API failed (${resp.status}): ${text}`);
     }
 
     const data = await resp.json();
     return { suggestion: data.answer?.["Key Results"] || [], raw: data };
   } catch (err: any) {
-    console.error('Mistral API error:', err.message);
+    console.error('Backend API error:', err.message);
     return { error: err.message, suggestion: [] };
   }
 }
 
-// 🔄 Unified entry point
-export async function askOkrModel({ prompt, context, params, provider = 'gemini' }: OkrSuggestParams): Promise<OkrSuggestResponse> {
-  if (provider === 'mistral') {
-    return generateKeyResults(prompt);
-  }
-
-  // Gemini (default)
+// 🔄 Unified entry point (forced to backend, no Gemini)
+export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   try {
-    const modelApiUrl =
-      import.meta.env.MODEL_API_URL ||
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
-    const modelApiKey = import.meta.env.MODEL_API_KEY;
-
-    if (!modelApiKey) {
-      return { error: 'Missing MODEL_API_KEY', suggestion: '' };
-    }
-
-    const payload = {
-      contents: [
-        {
-          parts: [
-            { text: prompt },
-            ...(context ? [{ text: `Context: ${JSON.stringify(context)}` }] : []),
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: params?.temperature ?? 0.3,
-        maxOutputTokens: params?.maxOutputTokens ?? 1000,
-        response_mime_type: 'application/json',
-      },
-    };
-
-    const resp = await fetch(modelApiUrl, {
+    const baseUrl = 'http://139.185.33.139';
+    const resp = await fetch(`${baseUrl}/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': modelApiKey,
-      },
-      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: prompt, context, params }),
     });
 
-    const text = await resp.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return { error: 'Invalid JSON from Gemini', suggestion: '', raw: text };
-    }
-
     if (!resp.ok) {
-      return {
-        error: data?.error?.message || text,
-        suggestion: '',
-        raw: data,
-      };
+      const text = await resp.text().catch(() => '');
+      return { error: `Backend API error (${resp.status}): ${text}`, suggestion: '' };
     }
 
-    const suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    return { suggestion, raw: data };
+    const data = await resp.json();
+    return { suggestion: data?.answer ?? '', raw: data };
   } catch (err: any) {
-    return { error: err.message || 'Gemini API network error', suggestion: '' };
+    return { error: err.message || 'Backend API network error', suggestion: '' };
   }
 }
 

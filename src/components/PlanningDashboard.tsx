@@ -58,36 +58,25 @@ export function PlanningDashboard() {
           ).values()
         );
 
-        // Debug duplicate key results (by plain id across contexts)
+        // Duplicate KR IDs across contexts are expected; keep logs quiet
         const krIds = allKeyResults.map((kr) => kr.id);
         const duplicateKrIds = Array.from(new Set(krIds.filter((id, i) => krIds.indexOf(id) !== i)));
         if (duplicateKrIds.length > 0) {
-          console.warn('Duplicate Key Result IDs across daily/weekly plans:', duplicateKrIds);
-          toast({
-            variant: 'destructive',
-            title: 'Warning',
-            description: 'Duplicate Key Result IDs detected across plans. Using unique keys.',
-          });
+          console.debug('Duplicate KR IDs across daily/weekly plans (expected):', duplicateKrIds);
         }
 
         setKeyResults(uniqueKeyResults);
 
+        // Properly dedupe employees by owner.id
         const allEmployees = Array.from(
-          new Map(
-            uniqueKeyResults.map((kr, index) => [`${kr.owner.id}-${index}`, kr.owner])
-          ).values()
+          new Map(uniqueKeyResults.map((kr) => [kr.owner.id, kr.owner])).values()
         );
 
-        // Debug duplicate employee IDs
+        // Employee duplicates should be rare after proper dedupe; keep as debug only
         const empIds = allEmployees.map((emp) => emp.id);
         const duplicateEmpIds = empIds.filter((id, index) => empIds.indexOf(id) !== index);
         if (duplicateEmpIds.length > 0) {
-          console.warn('Duplicate Employee IDs found:', duplicateEmpIds);
-          toast({
-            variant: 'destructive',
-            title: 'Warning',
-            description: 'Duplicate Employee IDs detected. Using unique keys.',
-          });
+          console.debug('Duplicate Employee IDs detected:', duplicateEmpIds);
         }
         setEmployees(allEmployees);
 

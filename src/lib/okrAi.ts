@@ -96,15 +96,39 @@ Return a JSON object with this structure:
 }`;
     }
 
-    const { suggestion, error } = await generateKeyResults(input);
+    const { suggestion, error, raw } = await generateKeyResults(input);
 
     if (error) {
-      console.error("Mistral API Error:", error);
+      console.error("Backend API Error:", error);
       return { title: input, keyResults: [] };
     }
 
     const title = input;
-    const aiKRs = Array.isArray(suggestion) ? suggestion : [];
+
+    // The backend sometimes wraps the JSON in fenced code blocks; extract the first JSON array if needed
+    const extractFirstJsonArray = (rawAnswer: any): any[] => {
+      if (Array.isArray(rawAnswer)) return rawAnswer;
+      if (typeof rawAnswer !== 'string') return [];
+      const cleaned = rawAnswer.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const match = cleaned.match(/\[[\s\S]*?\]/);
+      if (!match) return [];
+      try {
+        const parsed = JSON.parse(match[0]);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
+
+    // Prefer structured array under answer["Key Results"], else parse from answer string
+    let aiKRs: any[] = [];
+    if (Array.isArray((raw as any)?.answer?.["Key Results"])) {
+      aiKRs = (raw as any).answer["Key Results"];
+    } else if (Array.isArray(suggestion)) {
+      aiKRs = suggestion;
+    } else {
+      aiKRs = extractFirstJsonArray((raw as any)?.answer ?? suggestion);
+    }
 
     if (!Array.isArray(aiKRs)) return { title, keyResults: [] };
 
