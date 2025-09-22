@@ -201,7 +201,7 @@ Owner: ${kr.owner.name} (${kr.owner.role})
         throw new Error('Selected Key Result not found');
       }
       const weeklyTasksList = weeklyPlan.tasks.map((task) => 
-        `Title: ${task.title}, Description: ${task.description || 'No description'}, Priority: ${task.priority}, Target: ${task.target}, Weight: ${task.weight}`
+        `Title: ${task.title}, Description: ${task.description || 'No description'}, Priority: ${task.priority}, Weight: ${task.weight}`
       ).join('\n');
       const prompt = `
 Break down the following weekly plan into 2-4 measurable daily tasks. Return a JSON array of objects with the following structure: 
@@ -279,7 +279,7 @@ Objective: ${kr.objective}
           toast({ variant: 'destructive', title: 'AI Error', description: 'No valid tasks returned' });
         }
       } catch (parseError) {
-        console.error('Failed to parse AI response for daily tasks:', parseError, 'Raw suggestion:', suggestion);
+        console.error('Failed to parse AI response for daily tasks:', parseError, 'Raw response:', resp);
         setTasks([]);
         toast({ variant: 'destructive', title: 'AI Error', description: 'Failed to parse AI response' });
       }
