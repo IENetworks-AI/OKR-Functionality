@@ -438,13 +438,13 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
                             <Button
                               disabled={isGenerating}
                               onClick={async () => {
-                                const isAlign = !!editData.alignment;
-                                const inp = isAlign ? editData.alignment : editData.title;
+                                const inp = editData.alignment || alignment;
+                                if (!inp) return;
                                 setGeneratingObjectiveId(objective.id);
-                                const { title, keyResults } = await generateAIObjectiveAndKeyResults(inp, isAlign);
+                                const { title, keyResults } = await generateAIObjectiveAndKeyResults(inp, true);
                                 setEditData((prev: any) => ({ ...prev, title }));
                                 setObjectives(prev => prev.map(obj => 
-                                  obj.id === editData.objectiveId ? { ...obj, keyResults } : obj
+                                  obj.id === editData.objectiveId ? { ...obj, keyResults, title } : obj
                                 ));
                               }}
                             >
@@ -487,8 +487,10 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
                               <Button 
                                 size="sm" 
                                 onClick={async () => {
+                                  const inp = objective.alignment || alignment;
+                                  if (!inp) return;
                                   setGeneratingObjectiveId(objective.id);
-                                  const { title, keyResults } = await generateAIObjectiveAndKeyResults(objective.title, false);
+                                  const { title, keyResults } = await generateAIObjectiveAndKeyResults(inp, true);
                                   setObjectives(prev => prev.map(o => o.id === objective.id ? { ...o, title, keyResults } : o));
                                 }} 
                                 className="h-8 w-8 p-0"

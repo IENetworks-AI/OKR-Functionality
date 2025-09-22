@@ -169,7 +169,9 @@ export function Layout() {
   };
 
   const handleRegenerateOKR = async (objective: Objective) => {
-    const { title, keyResults } = await generateAIObjectiveAndKeyResults(objective.title, false);
+    const inp = objective.alignment;
+    if (!inp) return; // require dropdown alignment as prompt
+    const { title, keyResults } = await generateAIObjectiveAndKeyResults(inp, true);
     setObjectives(prev => prev.map(o => o.id === objective.id ? { ...o, title, keyResults } : o));
   };
 
