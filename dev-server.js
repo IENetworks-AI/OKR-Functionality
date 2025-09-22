@@ -37,63 +37,97 @@ app.use((req, res, next) => {
   }
 });
 
-// Netlify function handler
+// Netlify function handler (DEV): route to backend 139.185.33.139 and extract tasks
 app.post('/.netlify/functions/okr-suggest', async (req, res) => {
   try {
-    const { prompt, context, params } = req.body;
-    
-    if (!prompt) {
-      return res.status(400).json({ error: "Missing 'prompt'" });
+    const { prompt } = req.body || {};
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: "Missing or invalid 'prompt'" });
     }
 
-    const MODEL_API_URL = process.env.MODEL_API_URL;
-    const MODEL_API_KEY = process.env.MODEL_API_KEY;
+    // Hit the same backend as production function
+    const apiUrl = 'http://139.185.33.139/chat';
+    const upstream = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: prompt })
+    });
 
-    if (!MODEL_API_URL || !MODEL_API_KEY) {
-      return res.status(500).json({ error: "API configuration missing" });
+    let data;
+    try {
+      data = await upstream.json();
+    } catch (e) {
+      console.error('Upstream non-JSON response:', e);
+      return res.status(502).json({ error: 'Invalid JSON response from API' });
     }
 
-    const finalUrl = `${MODEL_API_URL}?key=${MODEL_API_KEY}`;
-    
-    const payload = {
-      contents: [{
-        parts: [{
-          text: prompt
-        }]
-      }],
-      generationConfig: {
-        temperature: params?.temperature || 0.3,
-        maxOutputTokens: params?.maxOutputTokens || 1000,
+    // If backend signaled an error, surface it directly
+    if (data?.error && !data?.answer) {
+      return res.status(502).json({ error: String(data.error) });
+    }
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: data });
+    }
+
+    // Robust task extraction mirroring Netlify function
+    const extractTasksFromAnswer = (ans) => {
+      try {
+        if (!ans) return [];
+        if (Array.isArray(ans)) {
+          if (ans.length > 0 && typeof ans[0] === 'object') return ans;
+          return [];
+        }
+        if (typeof ans === 'object') {
+          if (Array.isArray(ans.weekly_tasks)) return ans.weekly_tasks;
+          if (Array.isArray(ans.daily_tasks)) return ans.daily_tasks;
+          if (Array.isArray(ans.tasks)) return ans.tasks;
+          ans = JSON.stringify(ans);
+        }
+        if (typeof ans !== 'string') return [];
+        const cleaned = ans.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const weeklyMatch = cleaned.match(/"weekly_tasks"\s*:\s*(\[[\s\S]*?\])/i);
+        if (weeklyMatch) {
+          try { const arr = JSON.parse(weeklyMatch[1]); if (Array.isArray(arr)) return arr; } catch {}
+        }
+        const dailyMatch = cleaned.match(/"daily_tasks"\s*:\s*(\[[\s\S]*?\])/i);
+        if (dailyMatch) {
+          try { const arr = JSON.parse(dailyMatch[1]); if (Array.isArray(arr)) return arr; } catch {}
+        }
+        const tasksMatch = cleaned.match(/"tasks"\s*:\s*(\[[\s\S]*?\])/i);
+        if (tasksMatch) {
+          try { const arr = JSON.parse(tasksMatch[1]); if (Array.isArray(arr)) return arr; } catch {}
+        }
+        const arrays = cleaned.match(/\[[\s\S]*?\]/g) || [];
+        for (const arrStr of arrays) {
+          try {
+            const arr = JSON.parse(arrStr);
+            if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === 'object') {
+              const obj = arr[0] || {};
+              const hasTaskFields = ('title' in obj) || ('description' in obj) || ('deadline' in obj) || ('priority' in obj) || ('target' in obj) || ('weight' in obj);
+              const looksLikeKR = ('metric_type' in obj) || ('target_value' in obj) || ('baseline' in obj) || ('unit' in obj);
+              if (hasTaskFields && !looksLikeKR) return arr;
+            }
+          } catch {}
+        }
+        for (const arrStr of arrays) {
+          try { const arr = JSON.parse(arrStr); if (Array.isArray(arr)) return arr; } catch {}
+        }
+        return [];
+      } catch {
+        return [];
       }
     };
 
-    const response = await fetch(finalUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API Error:', errorText);
-      return res.status(response.status).json({ 
-        error: `HTTP ${response.status}: ${errorText}` 
-      });
+    const tasks = extractTasksFromAnswer(data?.answer);
+    if (!tasks.length) {
+      return res.status(502).json({ error: 'No valid JSON array found in API response', raw: data });
     }
 
-    const data = await response.json();
-    const suggestion = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!suggestion) {
-      return res.status(500).json({ error: "No suggestion found in API response" });
-    }
-
-    res.json({ suggestion, raw: data });
+    return res.json({ tasks });
   } catch (error) {
     console.error('Function error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error?.message || 'Unknown error' });
   }
 });
 
