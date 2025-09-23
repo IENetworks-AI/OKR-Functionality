@@ -207,6 +207,39 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
   }
 }
 
+// ✅ New helpers that call backend without free-form prompts
+export async function generateWeeklyTasksFromKR(keyResultId: string) {
+  const baseUrl = 'http://139.185.33.139';
+  const resp = await fetch(`${baseUrl}/weekly-plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // Backend expects a string; we'll send the selected KR identifier directly
+    body: JSON.stringify({ key_result: keyResultId }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`Backend API failed (${resp.status}): ${text}`);
+  }
+  const data = await resp.json();
+  return data?.weekly_plan?.WeeklyTasks || [];
+}
+
+export async function generateDailyTasksFromWeekly(weeklyPlanIdOrKR: string) {
+  const baseUrl = 'http://139.185.33.139';
+  const resp = await fetch(`${baseUrl}/daily-plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // Backend currently takes 'annual_key_result' string; we pass selected ID
+    body: JSON.stringify({ annual_key_result: weeklyPlanIdOrKR }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`Backend API failed (${resp.status}): ${text}`);
+  }
+  const data = await resp.json();
+  return data?.daily_plan?.DailyTasks || [];
+}
+
 /* ========================= 📦 API Types ========================= */
 interface ApiTask {
   id: string;

@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 import { KeyResult, WeeklyPlan, Task } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { askOkrModel } from "@/lib/ai";
+import { generateWeeklyTasksFromKR, generateDailyTasksFromWeekly } from "@/lib/okrApi";
 
 // UUID fallback generator
 const generateUUID = (): string =>
@@ -69,10 +69,12 @@ export function CreatePlanModal({
     }
   }, [keyResults, toast]);
 
-  // Weekly plans for selected KR (user-specific already via employeeKRs)
-  const availableWeeklyPlans = selectedKeyResultId
-    ? weeklyPlans.filter((plan) => plan.keyResultId === selectedKeyResultId)
-    : [];
+  // Weekly plans available for selection
+  // - For Daily plans: show all weekly plans and infer KR from the selected weekly plan
+  // - For Weekly plans: keep filtering by selected KR when needed
+  const availableWeeklyPlans = planType === 'Daily'
+    ? weeklyPlans
+    : (selectedKeyResultId ? weeklyPlans.filter((plan) => plan.keyResultId === selectedKeyResultId) : []);
 
   // Validate weeklyPlans to prevent empty IDs
   useEffect(() => {
@@ -87,7 +89,7 @@ export function CreatePlanModal({
     }
   }, [availableWeeklyPlans, toast]);
 
-  // AI generate tasks from Key Result
+  // Generate tasks from selected Key Result via backend (no free-form prompt)
   const generateAiTasks = async () => {
     if (!selectedKeyResultId) return;
     setIsGenerating(true);
@@ -97,85 +99,39 @@ export function CreatePlanModal({
       if (!kr) {
         throw new Error('Selected Key Result not found');
       }
-      const prompt = `
-Generate 2-4 measurable ${planType.toLowerCase()} tasks for the following Key Result. 
-Return a JSON array of objects with the following structure: 
-[{"title":"string","description":"string","priority":"High|Medium|Low","target":number,"weight":number,"deadline":"YYYY-MM-DD"}].
-Ensure weights sum to 100 and all fields are provided. Each task must have a unique, non-empty title and a target between 0 and 100.
-Key Result: ${kr.title}
-Objective: ${kr.objective}
-Owner: ${kr.owner.name} (${kr.owner.role})
-      `.trim();
+      // Call backend to generate tasks for selected Key Result (no prompt)
+      const aiTasks: any[] = await generateWeeklyTasksFromKR(selectedKeyResultId);
 
-      const resp: any = await askOkrModel({
-        prompt,
-        params: { temperature: 0.3, maxOutputTokens: 1000 },
-      });
+      if (Array.isArray(aiTasks) && aiTasks.length > 0) {
+        const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
+        const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
+          id: generateUUID(),
+          title: t.title || `Task ${index + 1}`,
+          description: t.description || '',
+          priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
+          target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
+          weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
+          parentTaskId: undefined,
+          achieved: 0,
+          krProgress: 0,
+          deadline: t.deadline ? new Date(t.deadline) : undefined,
+          isAI: true,
+        }));
 
-      const error = resp?.error;
-      if (error) {
-        console.error('AI task generation error:', error);
-        toast({ variant: 'destructive', title: 'AI Error', description: error });
-        setTasks([]);
-        return;
-      }
-
-      try {
-        let aiTasks: any[] = [];
-        if (Array.isArray(resp?.tasks)) {
-          aiTasks = resp.tasks;
-        } else if (typeof resp?.suggestion === 'string' && resp.suggestion.trim()) {
-          let jsonStr = resp.suggestion.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
-          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-          aiTasks = JSON.parse(jsonStr);
-        } else if (typeof resp === 'string' && resp.trim()) {
-          let jsonStr = resp.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
-          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-          aiTasks = JSON.parse(jsonStr);
-        } else if (resp?.raw?.answer && typeof resp.raw.answer === 'string') {
-          let jsonStr = resp.raw.answer.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
-          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-          aiTasks = JSON.parse(jsonStr);
+        // Normalize weights to exactly sum to 100 (handle rounding errors)
+        let currentTotalWeight = normalizedTasks.reduce((sum, t) => sum + t.weight, 0);
+        let difference = 100 - currentTotalWeight;
+        for (let i = 0; i < Math.abs(difference); i++) {
+          const index = i % normalizedTasks.length;
+          normalizedTasks[index].weight += difference > 0 ? 1 : -1;
         }
 
-        if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-          const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
-          const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
-            id: generateUUID(),
-            title: t.title || `Task ${index + 1}`,
-            description: t.description || '',
-            priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
-            target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
-            weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
-            parentTaskId: undefined,
-            achieved: 0,
-            krProgress: 0,
-            deadline: t.deadline ? new Date(t.deadline) : undefined,
-            isAI: true,
-          }));
-
-          // Normalize weights to exactly sum to 100 (handle rounding errors)
-          let currentTotalWeight = normalizedTasks.reduce((sum, t) => sum + t.weight, 0);
-          let difference = 100 - currentTotalWeight;
-          for (let i = 0; i < Math.abs(difference); i++) {
-            const index = i % normalizedTasks.length;
-            normalizedTasks[index].weight += difference > 0 ? 1 : -1;
-          }
-
-          setTasks(normalizedTasks);
-          toast({ title: 'Success', description: 'AI-generated tasks loaded' });
-        } else {
-          console.warn('No valid tasks in AI response:', aiTasks);
-          setTasks([]);
-          toast({ variant: 'destructive', title: 'AI Error', description: 'No valid tasks returned' });
-        }
-      } catch (parseError) {
-        console.error('Failed to parse AI response:', parseError, 'Raw response:', resp);
+        setTasks(normalizedTasks);
+        toast({ title: 'Success', description: 'Tasks loaded' });
+      } else {
+        console.warn('No tasks returned from backend:', aiTasks);
         setTasks([]);
-        toast({ variant: 'destructive', title: 'AI Error', description: 'Failed to parse AI response' });
+        toast({ variant: 'destructive', title: 'Error', description: 'No tasks returned' });
       }
     } catch (err) {
       console.error('Error generating AI tasks:', err);
@@ -192,96 +148,50 @@ Owner: ${kr.owner.name} (${kr.owner.role})
 
   // AI generate daily tasks from Weekly Plan
   const generateDailyTasksFromWeeklyPlan = async (weeklyPlan: WeeklyPlan) => {
-    if (!selectedKeyResultId) return;
+    // Infer KR from selected weekly plan so dropdown uses weekly plans only
+    const inferredKrId = weeklyPlan.keyResultId;
+    if (!inferredKrId) return;
+    setSelectedKeyResultId(inferredKrId);
     setIsGeneratingFromWeekly(true);
 
     try {
-      const kr = keyResults.find((kr) => kr.id === selectedKeyResultId);
+      const kr = keyResults.find((k) => k.id === inferredKrId);
       if (!kr) {
-        throw new Error('Selected Key Result not found');
+        throw new Error('Selected Key Result not found from weekly plan');
       }
-      const weeklyTasksList = weeklyPlan.tasks.map((task) => 
-        `Title: ${task.title}, Description: ${task.description || 'No description'}, Priority: ${task.priority}, Weight: ${task.weight}`
-      ).join('\n');
-      const prompt = `
-Break down the following weekly plan into 2-4 measurable daily tasks. Return a JSON array of objects with the following structure: 
-[{"title":"string","description":"string","priority":"High|Medium|Low","target":number,"weight":number,"deadline":"YYYY-MM-DD"}].
-Ensure weights sum to 100 and all fields are provided. Each task must have a unique, non-empty title and a target between 0 and 100.
-Weekly Plan Tasks:
-${weeklyTasksList}
-Key Result: ${kr.title}
-Objective: ${kr.objective}
-      `.trim();
+      // Call backend to generate daily tasks from selected weekly plan ID (no prompt)
+      const aiTasks: any[] = await generateDailyTasksFromWeekly(weeklyPlan.id);
 
-      const resp: any = await askOkrModel({
-        prompt,
-        params: { temperature: 0.3, maxOutputTokens: 1000 },
-      });
+      if (Array.isArray(aiTasks) && aiTasks.length > 0) {
+        const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
+        const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
+          id: generateUUID(),
+          title: t.title || `Daily Task ${index + 1}`,
+          description: t.description || `Linked to weekly plan: ${weeklyPlan.id}`,
+          priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
+          target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
+          weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
+          parentTaskId: undefined,
+          achieved: 0,
+          krProgress: 0,
+          deadline: t.deadline ? new Date(t.deadline) : undefined,
+          isAI: true,
+        }));
 
-      const error = resp?.error;
-      if (error) {
-        console.error('AI daily task generation error:', error);
-        toast({ variant: 'destructive', title: 'AI Error', description: error });
-        setTasks([]);
-        return;
-      }
-
-      try {
-        let aiTasks: any[] = [];
-        if (Array.isArray(resp?.tasks)) {
-          aiTasks = resp.tasks;
-        } else if (typeof resp?.suggestion === 'string' && resp.suggestion.trim()) {
-          let jsonStr = resp.suggestion.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
-          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-          aiTasks = JSON.parse(jsonStr);
-        } else if (typeof resp === 'string' && resp.trim()) {
-          let jsonStr = resp.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
-          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-          aiTasks = JSON.parse(jsonStr);
-        } else if (resp?.raw?.answer && typeof resp.raw.answer === 'string') {
-          let jsonStr = resp.raw.answer.replace(/```json\s*/i, '').replace(/```\s*$/i, '').trim();
-          const jsonMatch = jsonStr.match(/\[[\s\S]*\]/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-          aiTasks = JSON.parse(jsonStr);
+        // Normalize weights to exactly sum to 100 (handle rounding errors)
+        let currentTotalWeight = normalizedTasks.reduce((sum, t) => sum + t.weight, 0);
+        let difference = 100 - currentTotalWeight;
+        for (let i = 0; i < Math.abs(difference); i++) {
+          const index = i % normalizedTasks.length;
+          normalizedTasks[index].weight += difference > 0 ? 1 : -1;
         }
 
-        if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-          const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
-          const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
-            id: generateUUID(),
-            title: t.title || `Daily Task ${index + 1}`,
-            description: t.description || `Linked to weekly plan: ${weeklyPlan.id}`,
-            priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
-            target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
-            weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
-            parentTaskId: undefined,
-            achieved: 0,
-            krProgress: 0,
-            deadline: t.deadline ? new Date(t.deadline) : undefined,
-            isAI: true,
-          }));
-
-          // Normalize weights to exactly sum to 100 (handle rounding errors)
-          let currentTotalWeight = normalizedTasks.reduce((sum, t) => sum + t.weight, 0);
-          let difference = 100 - currentTotalWeight;
-          for (let i = 0; i < Math.abs(difference); i++) {
-            const index = i % normalizedTasks.length;
-            normalizedTasks[index].weight += difference > 0 ? 1 : -1;
-          }
-
-          setTasks(normalizedTasks);
-          toast({ title: 'Success', description: 'Daily tasks generated from weekly plan' });
-        } else {
-          console.warn('No valid tasks in AI response:', aiTasks);
-          setTasks([]);
-          toast({ variant: 'destructive', title: 'AI Error', description: 'No valid tasks returned' });
-        }
-      } catch (parseError) {
-        console.error('Failed to parse AI response for daily tasks:', parseError, 'Raw response:', resp);
+        setTasks(normalizedTasks);
+        toast({ title: 'Success', description: 'Daily tasks generated from weekly plan' });
+      } else {
+        console.warn('No tasks returned from backend:', aiTasks);
         setTasks([]);
-        toast({ variant: 'destructive', title: 'AI Error', description: 'Failed to parse AI response' });
+        toast({ variant: 'destructive', title: 'Error', description: 'No valid tasks returned' });
       }
     } catch (err) {
       console.error('Error generating daily tasks from weekly plan:', err);
@@ -381,16 +291,22 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
         toast({ variant: 'destructive', title: 'Error', description: 'Selected Weekly Plan not found' });
       }
     } else {
+      // When no weekly plan is chosen, clear tasks and do NOT generate from KR automatically for Daily plan
       setTasks([]);
-      generateAiTasks();
+      if (planType === 'Weekly') {
+        generateAiTasks();
+      }
     }
   };
 
   useEffect(() => {
-    if (selectedKeyResultId && (!selectedWeeklyPlanId || planType !== 'Daily' || selectedWeeklyPlanId === 'none')) {
+    // For Weekly plan: generate tasks when KR changes
+    if (planType === 'Weekly' && selectedKeyResultId) {
       generateAiTasks();
+      return;
     }
-  }, [selectedKeyResultId, planType, selectedWeeklyPlanId]);
+    // For Daily plan: only generate after a weekly plan is chosen
+  }, [selectedKeyResultId, planType]);
 
   const addTask = () =>
     setTasks([
@@ -451,40 +367,45 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
         </DialogHeader>
 
         <div className="space-y-6 p-1">
-          {/* Key Result */}
-          <div>
-            <Label htmlFor="key-result">Select Key Result</Label>
-            <Select value={selectedKeyResultId} onValueChange={setSelectedKeyResultId}>
-              <SelectTrigger id="key-result">
-                <SelectValue placeholder="Choose a Key Result to plan for" />
-              </SelectTrigger>
-              <SelectContent>
-                {keyResults.map((kr, index) => (
-                  <SelectItem key={`${kr.id}-${planType}-${index}`} value={kr.id}>
-                    {kr.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Weekly Plan Selection for Daily Plans */}
-          {planType === 'Daily' && selectedKeyResultId && availableWeeklyPlans.length > 0 && (
+          {/* Key Result (Weekly only) */}
+          {planType === 'Weekly' && (
             <div>
-              <Label htmlFor="weekly-plan" className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-500" /> Generate from Weekly Plan (Optional)
-              </Label>
-              <Select value={selectedWeeklyPlanId} onValueChange={handleWeeklyPlanSelection}>
-                <SelectTrigger id="weekly-plan" disabled={isGeneratingFromWeekly}>
-                  <SelectValue placeholder="Choose a weekly plan to break down" />
+              <Label htmlFor="key-result">Select Key Result</Label>
+              <Select value={selectedKeyResultId} onValueChange={setSelectedKeyResultId}>
+                <SelectTrigger id="key-result">
+                  <SelectValue placeholder="Choose a Key Result to plan for" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem key="none" value="none">None (Generate from Key Result)</SelectItem>
-                  {availableWeeklyPlans.map((p, index) => (
-                    <SelectItem key={`${p.id}-${planType}-${index}`} value={p.id}>
-                      {p.date ? `Weekly Plan (${p.date})` : `Weekly Plan ${p.id}`}
+                  {keyResults.map((kr, index) => (
+                    <SelectItem key={`${kr.id}-${planType}-${index}`} value={kr.id}>
+                      {kr.title}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {/* Weekly Plan Selection (Daily only) */}
+          {planType === 'Daily' && (
+            <div>
+              <Label htmlFor="weekly-plan" className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-500" /> Select Weekly Plan
+              </Label>
+              <Select value={selectedWeeklyPlanId} onValueChange={handleWeeklyPlanSelection}>
+                <SelectTrigger id="weekly-plan" disabled={isGeneratingFromWeekly || availableWeeklyPlans.length === 0}>
+                  <SelectValue placeholder={availableWeeklyPlans.length === 0 ? "No weekly plans found" : "Choose a weekly plan to break down"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableWeeklyPlans.map((p, index) => {
+                    const taskName = p.tasks && p.tasks.length > 0 ? p.tasks[0].title : undefined;
+                    const label = taskName || (p.date ? `Weekly: ${p.date}` : `Weekly Plan ${p.id}`);
+                    return (
+                      <SelectItem key={`${p.id}-${planType}-${index}`} value={p.id}>
+                        {label}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
               {isGeneratingFromWeekly && (

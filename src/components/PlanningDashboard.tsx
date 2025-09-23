@@ -275,7 +275,7 @@ export function PlanningDashboard() {
                 onSave={handleCreatePlan}
                 planType={activeTab}
                 keyResults={employeeKRs}
-                weeklyPlans={plans.Weekly || []}
+                weeklyPlans={(plans.Weekly || []).filter((p) => employeeKRs.some((kr) => kr.id === p.keyResultId))}
               />
             )}
 
