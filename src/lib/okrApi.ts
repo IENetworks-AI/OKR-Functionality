@@ -165,8 +165,7 @@ export type OkrSuggestResponse = {
 // 🚀 Backend API integration (forced to 139.185.33.139)
 export async function generateKeyResults(objective: string): Promise<OkrSuggestResponse> {
   try {
-    const baseUrl = 'http://139.185.33.139';
-    const resp = await fetch(`${baseUrl}/chat`, {
+    const resp = await fetch(`/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: objective }),
@@ -188,8 +187,7 @@ export async function generateKeyResults(objective: string): Promise<OkrSuggestR
 // 🔄 Unified entry point (forced to backend, no Gemini)
 export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   try {
-    const baseUrl = 'http://139.185.33.139';
-    const resp = await fetch(`${baseUrl}/chat`, {
+    const resp = await fetch(`/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: prompt, context, params }),
@@ -209,8 +207,7 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
 
 // ✅ New helpers that call backend without free-form prompts
 export async function generateWeeklyTasksFromKR(keyResultId: string) {
-  const baseUrl = 'http://139.185.33.139';
-  const resp = await fetch(`${baseUrl}/weekly-plan`, {
+  const resp = await fetch(`/api/weekly-plan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Backend expects a string; we'll send the selected KR identifier directly
@@ -221,12 +218,17 @@ export async function generateWeeklyTasksFromKR(keyResultId: string) {
     throw new Error(`Backend API failed (${resp.status}): ${text}`);
   }
   const data = await resp.json();
-  return data?.weekly_plan?.WeeklyTasks || [];
+  return (data?.weekly_plan?.WeeklyTasks || []).map((t: any) => ({
+    title: t.title,
+    // backend priority may be lowercase; normalize to 'High' | 'Medium' | 'Low'
+    priority: ((t.priority + '').charAt(0).toUpperCase() + (t.priority + '').slice(1).toLowerCase()) as 'High' | 'Medium' | 'Low',
+    target: typeof t.target === 'number' ? t.target : (t.target ? parseFloat(t.target) : 100),
+    weight: typeof t.weight === 'number' ? t.weight : (t.weight ? parseFloat(t.weight) : 0),
+}));
 }
 
 export async function generateDailyTasksFromWeekly(weeklyPlanIdOrKR: string) {
-  const baseUrl = 'http://139.185.33.139';
-  const resp = await fetch(`${baseUrl}/daily-plan`, {
+  const resp = await fetch(`/api/daily-plan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     // Backend currently takes 'annual_key_result' string; we pass selected ID
@@ -237,7 +239,13 @@ export async function generateDailyTasksFromWeekly(weeklyPlanIdOrKR: string) {
     throw new Error(`Backend API failed (${resp.status}): ${text}`);
   }
   const data = await resp.json();
-  return data?.daily_plan?.DailyTasks || [];
+  return (data?.daily_plan?.DailyTasks || []).map((t: any) => ({
+    title: t.title,
+    priority: ((t.priority + '').charAt(0).toUpperCase() + (t.priority + '').slice(1).toLowerCase()) as 'High' | 'Medium' | 'Low',
+    // daily items do not include target; default to 100 unless specified
+    target: typeof t.target === 'number' ? t.target : (t.target ? parseFloat(t.target) : 100),
+    weight: typeof t.weight === 'number' ? t.weight : (t.weight ? parseFloat(t.weight) : 0),
+}));
 }
 
 /* ========================= 📦 API Types ========================= */

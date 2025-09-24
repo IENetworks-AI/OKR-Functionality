@@ -331,7 +331,7 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-center text-xl font-semibold">OKR</DialogTitle>
         </DialogHeader>

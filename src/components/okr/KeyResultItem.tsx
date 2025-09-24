@@ -216,7 +216,7 @@ export function KeyResultItem({
                   Regenerate
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[400px]">
+              <DialogContent aria-describedby={undefined} className="sm:max-w-[400px]">
                 <DialogHeader>
                   <DialogTitle>Refine AI Suggestion</DialogTitle>
                 </DialogHeader>

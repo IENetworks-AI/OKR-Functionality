@@ -4,13 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { X, Plus, Sparkles, Loader2, RefreshCw, CalendarIcon } from 'lucide-react';
+import { X, Plus, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 
 import { KeyResult, WeeklyPlan, Task } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -37,7 +33,6 @@ export interface CreatePlanModalProps {
 
 interface TaskWithAI extends Task {
   isAI?: boolean;
-  deadline?: Date;
 }
 
 export function CreatePlanModal({
@@ -107,14 +102,12 @@ export function CreatePlanModal({
         const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
           id: generateUUID(),
           title: t.title || `Task ${index + 1}`,
-          description: t.description || '',
-          priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
+          priority: t.priority && ['High', 'Medium', 'Low'].includes((t.priority + '').charAt(0).toUpperCase() + (t.priority + '').slice(1).toLowerCase()) ? ((t.priority + '').charAt(0).toUpperCase() + (t.priority + '').slice(1).toLowerCase()) as 'High' | 'Medium' | 'Low' : 'Medium',
           target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
           weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
           parentTaskId: undefined,
           achieved: 0,
           krProgress: 0,
-          deadline: t.deadline ? new Date(t.deadline) : undefined,
           isAI: true,
         }));
 
@@ -167,14 +160,12 @@ export function CreatePlanModal({
         const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
           id: generateUUID(),
           title: t.title || `Daily Task ${index + 1}`,
-          description: t.description || `Linked to weekly plan: ${weeklyPlan.id}`,
-          priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
+          priority: t.priority && ['High', 'Medium', 'Low'].includes((t.priority + '').charAt(0).toUpperCase() + (t.priority + '').slice(1).toLowerCase()) ? ((t.priority + '').charAt(0).toUpperCase() + (t.priority + '').slice(1).toLowerCase()) as 'High' | 'Medium' | 'Low' : 'Medium',
           target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
           weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
           parentTaskId: undefined,
           achieved: 0,
           krProgress: 0,
-          deadline: t.deadline ? new Date(t.deadline) : undefined,
           isAI: true,
         }));
 
@@ -223,10 +214,10 @@ export function CreatePlanModal({
 
       const prompt = `
 Regenerate this measurable ${planType.toLowerCase()} task for the Key Result: ${kr.title}.
-Original: Title: ${task.title}, Description: ${task.description}, Priority: ${task.priority}, Target: ${task.target}, Weight: ${task.weight}, Deadline: ${task.deadline ? format(task.deadline, 'yyyy-MM-dd') : 'None'}
+Original: Title: ${task.title}, Priority: ${task.priority}, Target: ${task.target}, Weight: ${task.weight}
 Refinement: ${refinement}
 Return a JSON object with the following structure: 
-{"title":"string","description":"string","priority":"High|Medium|Low","target":number,"weight":number,"deadline":"YYYY-MM-DD"}.
+{"title":"string","priority":"High|Medium|Low","target":number,"weight":number}.
 Ensure all fields are provided. The task must have a unique, non-empty title and a target between 0 and 100.
       `.trim();
 
@@ -252,11 +243,9 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
             ? {
                 ...t,
                 title: newTask.title || t.title,
-                description: newTask.description || t.description,
                 priority: newTask.priority && ['High', 'Medium', 'Low'].includes(newTask.priority) ? newTask.priority : t.priority,
                 target: Math.min(Math.max(parseFloat(newTask.target) || t.target, 0), 100),
                 weight: parseFloat(newTask.weight) || t.weight,
-                deadline: newTask.deadline ? new Date(newTask.deadline) : t.deadline,
               }
             : t
         ));
@@ -314,21 +303,17 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
       {
         id: generateUUID(),
         title: '',
-        description: selectedWeeklyPlanId && selectedWeeklyPlanId !== 'none'
-          ? `Linked to weekly plan: ${availableWeeklyPlans.find((p) => p.id === selectedWeeklyPlanId)?.id || ''}`
-          : '',
         priority: 'Medium',
         target: 100,
         weight: 0,
         parentTaskId: undefined,
         achieved: 0,
         krProgress: 0,
-        deadline: undefined,
       },
     ]);
 
   const removeTask = (id: string) => setTasks(tasks.filter((t) => t.id !== id));
-  const updateTask = (id: string, field: keyof Omit<Task, 'id' | 'parentTaskId' | 'achieved' | 'krProgress'> | 'deadline', value: string | number | Date) =>
+  const updateTask = (id: string, field: keyof Omit<Task, 'id' | 'parentTaskId' | 'achieved' | 'krProgress'>, value: string | number) =>
     setTasks(tasks.map((t) => (t.id === id ? { ...t, [field]: value } : t)));
 
   const handleSubmit = () => {
@@ -479,10 +464,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
                         <Input value={task.title} onChange={(e) => updateTask(task.id, 'title', e.target.value)} placeholder="Enter task title" />
                       </div>
 
-                      <div className="md:col-span-2">
-                        <Label>Description</Label>
-                        <Textarea value={task.description || ''} onChange={(e) => updateTask(task.id, 'description', e.target.value)} rows={2} />
-                      </div>
+                      
 
                       <div>
                         <Label>Priority</Label>
@@ -508,31 +490,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
                         <Input type="number" value={task.weight} onChange={(e) => updateTask(task.id, 'weight', parseFloat(e.target.value) || 0)} />
                       </div>
 
-                      <div>
-                        <Label>Deadline</Label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                "w-full justify-start text-left font-normal",
-                                !task.deadline && "text-muted-foreground"
-                              )}
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              ${task.deadline ? format(task.deadline, "PPP") : "Pick a date"}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0">
-                            <Calendar
-                              mode="single"
-                              selected={task.deadline}
-                              onSelect={(date) => updateTask(task.id, 'deadline', date)}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
-                      </div>
+                      
                     </div>
                   </div>
                 ))}

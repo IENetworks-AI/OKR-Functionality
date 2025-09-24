@@ -15,6 +15,21 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/okr-suggest/, "/.netlify/functions/okr-suggest"),
       },
+      "/api/chat": {
+        target: "http://139.185.33.139",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/chat/, "/chat"),
+      },
+      "/api/weekly-plan": {
+        target: "http://139.185.33.139",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/weekly-plan/, "/weekly-plan"),
+      },
+      "/api/daily-plan": {
+        target: "http://139.185.33.139",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/daily-plan/, "/daily-plan"),
+      },
     },
   },
   plugins: [
