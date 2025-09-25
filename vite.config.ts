@@ -16,19 +16,37 @@ export default defineConfig(({ mode }) => ({
         rewrite: (path) => path.replace(/^\/api\/okr-suggest/, "/.netlify/functions/okr-suggest"),
       },
       "/api/chat": {
-        target: "http://139.185.33.139",
+        target: "https://1a83c07684f3.ngrok-free.app",
         changeOrigin: true,
+        secure: true,
         rewrite: (path) => path.replace(/^\/api\/chat/, "/chat"),
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            proxyReq.setHeader('ngrok-skip-browser-warning', 'true');
+          });
+        },
       },
       "/api/weekly-plan": {
-        target: "http://139.185.33.139",
+        target: "https://1a83c07684f3.ngrok-free.app",
         changeOrigin: true,
+        secure: true,
         rewrite: (path) => path.replace(/^\/api\/weekly-plan/, "/weekly-plan"),
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            proxyReq.setHeader('ngrok-skip-browser-warning', 'true');
+          });
+        },
       },
       "/api/daily-plan": {
-        target: "http://139.185.33.139",
+        target: "https://1a83c07684f3.ngrok-free.app",
         changeOrigin: true,
+        secure: true,
         rewrite: (path) => path.replace(/^\/api\/daily-plan/, "/daily-plan"),
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            proxyReq.setHeader('ngrok-skip-browser-warning', 'true');
+          });
+        },
       },
     },
   },

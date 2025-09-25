@@ -34,8 +34,8 @@ class AIService {
   private retryDelay = 1000;
 
   constructor() {
-    // Use the backend URL from your Streamlit example
-    this.baseUrl = "https://1a83c07684f3.ngrok-free.app";
+    // Use proxy endpoints to avoid CORS issues
+    this.baseUrl = "/api";
   }
 
   async makeRequest(
@@ -44,7 +44,7 @@ class AIService {
     retryCount = 0
   ): Promise<AIResponse> {
     try {
-      // Use direct backend URL instead of Netlify functions
+      // Use proxy endpoints to avoid CORS issues
       const response = await fetch(`${this.baseUrl}/${endpoint}`, {
         method: 'POST',
         headers: {
@@ -54,13 +54,50 @@ class AIService {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorText = await response.text();
+        console.error(`Backend Error Response:`, errorText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('Backend Response:', data);
       
       if (data.error) {
+        // If there's an error but raw_answer exists, try to parse it
+        if (data.raw_answer) {
+          console.log('Attempting to parse raw_answer due to JSON error');
+          try {
+            // Clean and extract JSON from the raw_answer text
+            let jsonText = data.raw_answer.trim();
+            
+            // Remove any leading/trailing text that's not JSON
+            const jsonStart = jsonText.indexOf('{');
+            const jsonEnd = jsonText.lastIndexOf('}');
+            
+            if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+              jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
+              const parsedData = JSON.parse(jsonText);
+              return {
+                success: true,
+                data: { answer: parsedData },
+                confidence: this.calculateConfidence(parsedData),
+              };
+            }
+          } catch (parseError) {
+            console.error('Failed to parse raw_answer:', parseError);
+            console.log('Raw answer content:', data.raw_answer);
+          }
+        }
         throw new Error(data.error);
+      }
+
+      // Handle direct response format (e.g., {daily_plan: {...}})
+      if (data.daily_plan || data.weekly_plan) {
+        return {
+          success: true,
+          data: { answer: data },
+          confidence: this.calculateConfidence(data),
+        };
       }
 
       return {
@@ -82,10 +119,8 @@ class AIService {
     }
   }
 
-  // Gemini fallback - commented out until backend is checked
+  // Gemini fallback - enabled due to CORS issues with ngrok backend
   private async fallbackToGemini(payload: any): Promise<AIResponse> {
-    /*
-    // TODO: Uncomment when backend is confirmed not working
     try {
       const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (!geminiApiKey) {
@@ -140,35 +175,28 @@ class AIService {
         error: `Both backend and Gemini failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       };
     }
-    */
-    
-    // For now, return error when backend fails
-    return {
-      success: false,
-      error: 'Backend service unavailable. Gemini fallback is commented out.',
-    };
   }
 
-  // Build prompt for Gemini (commented out)
+  // Build prompt for Gemini
   private buildGeminiPrompt(payload: any): string {
-    /*
-    if (payload.type === 'key_results') {
-      return `Generate 3-4 key results for the objective: "${payload.objective}". 
-      Return JSON format: {"key_results": [{"title": "string", "weight": number, "metric_type": "milestone|percentage|numeric|currency|achieved", "target_value": number}]}`;
-    } else if (payload.planType === 'weekly') {
-      return `Generate weekly tasks for: "${payload.keyResult}". 
-      Return JSON format: {"weekly_plan": {"WeeklyTasks": [{"title": "string", "target": 100, "weight": number, "priority": "high|medium|low"}]}}`;
-    } else if (payload.planType === 'daily') {
-      return `Generate daily tasks for: "${payload.keyResult}". 
-      Return JSON format: {"daily_plan": {"DailyTasks": [{"title": "string", "weight": number, "priority": "high|medium|low"}]}}`;
+    if (payload.query) {
+      // For chat/OKR generation requests
+      return `Generate 3-4 key results for the objective: "${payload.query}". 
+      Return JSON format: {"Key Results": [{"title": "string", "metric_type": "milestone|percentage|numeric|currency|achieved", "initial_value": 0, "target_value": number, "status": "not_started"}]}`;
+    } else if (payload.key_result) {
+      // For weekly plan requests
+      return `Generate weekly tasks for: "${payload.key_result}". 
+      Return JSON format: {"WeeklyTasks": [{"title": "string", "target": 100, "weight": number, "priority": "high|medium|low"}]}`;
+    } else if (payload.annual_key_result) {
+      // For daily plan requests
+      return `Generate daily tasks for: "${payload.annual_key_result}". 
+      Return JSON format: {"DailyTasks": [{"title": "string", "weight": number, "priority": "high|medium|low"}]}`;
     }
-    */
     return '';
   }
 
-  // Parse Gemini response (commented out)
+  // Parse Gemini response
   private parseGeminiResponse(text: string, payload: any): any {
-    /*
     try {
       // Extract JSON from Gemini response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -178,7 +206,6 @@ class AIService {
     } catch (error) {
       console.error('Failed to parse Gemini response:', error);
     }
-    */
     return {};
   }
 
@@ -373,6 +400,13 @@ class AIService {
         }
       });
     } else if (typeof answer === 'object') {
+      // Handle the actual backend response format with "Key Results" array
+      if (answer['Key Results'] && Array.isArray(answer['Key Results'])) {
+        answer['Key Results'].forEach((kr: any) => {
+          if (kr.title) suggestions.push(kr.title);
+        });
+      }
+      // Fallback to other possible formats
       if (answer.key_results) {
         answer.key_results.forEach((kr: any) => {
           if (kr.title) suggestions.push(kr.title);
@@ -396,6 +430,8 @@ class AIService {
     
     // Look for various task array formats
     const taskArrays = [
+      answer.daily_plan?.DailyTasks,
+      answer.weekly_plan?.WeeklyTasks,
       answer.daily_tasks,
       answer.weekly_tasks,
       answer.tasks,
