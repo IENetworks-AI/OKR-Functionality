@@ -34,16 +34,18 @@ class AIService {
   private retryDelay = 1000;
 
   constructor() {
-    this.baseUrl = import.meta.env.DEV ? "http://localhost:8082" : "";
+    // Use the backend URL from your Streamlit example
+    this.baseUrl = "https://1a83c07684f3.ngrok-free.app";
   }
 
-  private async makeRequest(
+  async makeRequest(
     endpoint: string, 
     payload: any, 
     retryCount = 0
   ): Promise<AIResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/.netlify/functions/${endpoint}`, {
+      // Use direct backend URL instead of Netlify functions
+      const response = await fetch(`${this.baseUrl}/${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -74,11 +76,110 @@ class AIService {
         return this.makeRequest(endpoint, payload, retryCount + 1);
       }
 
+      // Fallback to Gemini if backend fails
+      console.log('Backend failed, attempting Gemini fallback...');
+      return this.fallbackToGemini(payload);
+    }
+  }
+
+  // Gemini fallback - commented out until backend is checked
+  private async fallbackToGemini(payload: any): Promise<AIResponse> {
+    /*
+    // TODO: Uncomment when backend is confirmed not working
+    try {
+      const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!geminiApiKey) {
+        throw new Error('Gemini API key not configured');
+      }
+
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
+      
+      const prompt = this.buildGeminiPrompt(payload);
+      
+      const response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1000,
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Gemini API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (!generatedText) {
+        throw new Error('No response from Gemini');
+      }
+
+      // Parse Gemini response to match expected format
+      const parsedData = this.parseGeminiResponse(generatedText, payload);
+      
+      return {
+        success: true,
+        data: parsedData,
+        confidence: 0.8,
+      };
+    } catch (error) {
+      console.error('Gemini fallback failed:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        error: `Both backend and Gemini failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       };
     }
+    */
+    
+    // For now, return error when backend fails
+    return {
+      success: false,
+      error: 'Backend service unavailable. Gemini fallback is commented out.',
+    };
+  }
+
+  // Build prompt for Gemini (commented out)
+  private buildGeminiPrompt(payload: any): string {
+    /*
+    if (payload.type === 'key_results') {
+      return `Generate 3-4 key results for the objective: "${payload.objective}". 
+      Return JSON format: {"key_results": [{"title": "string", "weight": number, "metric_type": "milestone|percentage|numeric|currency|achieved", "target_value": number}]}`;
+    } else if (payload.planType === 'weekly') {
+      return `Generate weekly tasks for: "${payload.keyResult}". 
+      Return JSON format: {"weekly_plan": {"WeeklyTasks": [{"title": "string", "target": 100, "weight": number, "priority": "high|medium|low"}]}}`;
+    } else if (payload.planType === 'daily') {
+      return `Generate daily tasks for: "${payload.keyResult}". 
+      Return JSON format: {"daily_plan": {"DailyTasks": [{"title": "string", "weight": number, "priority": "high|medium|low"}]}}`;
+    }
+    */
+    return '';
+  }
+
+  // Parse Gemini response (commented out)
+  private parseGeminiResponse(text: string, payload: any): any {
+    /*
+    try {
+      // Extract JSON from Gemini response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    } catch (error) {
+      console.error('Failed to parse Gemini response:', error);
+    }
+    */
+    return {};
   }
 
   private delay(ms: number): Promise<void> {
@@ -104,24 +205,12 @@ class AIService {
     return Math.min(confidence, 1.0);
   }
 
-  // Enhanced OKR Generation with better prompts
+  // OKR Generation using /chat endpoint for key results
   async generateOKR(request: OKRGenerationRequest): Promise<AIResponse> {
-    const enhancedPrompt = this.buildOKRPrompt(request);
-    
-    const response = await this.makeRequest('okr-suggest', {
-      prompt: enhancedPrompt,
-      context: {
-        type: request.type,
-        department: request.context?.department,
-        role: request.context?.role,
-        timeframe: request.context?.timeframe,
-        priority: request.context?.priority,
-      },
-      params: {
-        temperature: 0.7,
-        maxOutputTokens: 1000,
-        topP: 0.9,
-      }
+    // Use /chat endpoint for key results generation
+    const response = await this.makeRequest('chat', {
+      query: request.objective,
+      top_k: 5,
     });
 
     if (response.success) {
@@ -198,23 +287,28 @@ class AIService {
     return basePrompt;
   }
 
-  // Enhanced Task Generation
+  // Task Generation using specific endpoints
   async generateTasks(request: TaskGenerationRequest): Promise<AIResponse> {
-    const enhancedPrompt = this.buildTaskPrompt(request);
-    
-    const response = await this.makeRequest('okr-suggest', {
-      prompt: enhancedPrompt,
-      context: {
-        planType: request.planType,
-        complexity: request.context?.complexity,
-        duration: request.context?.duration,
-        resources: request.context?.resources,
-      },
-      params: {
-        temperature: 0.6,
-        maxOutputTokens: 800,
-      }
-    });
+    let endpoint: string;
+    let payload: any;
+
+    if (request.planType === 'weekly') {
+      endpoint = 'weekly-plan';
+      payload = {
+        key_result: request.keyResult,
+        top_k: 5,
+      };
+    } else if (request.planType === 'daily') {
+      endpoint = 'daily-plan';
+      payload = {
+        annual_key_result: request.keyResult,
+        top_k: 5,
+      };
+    } else {
+      throw new Error(`Unsupported plan type: ${request.planType}`);
+    }
+
+    const response = await this.makeRequest(endpoint, payload);
 
     if (response.success) {
       response.suggestions = this.extractTaskSuggestions(response.data);
@@ -255,32 +349,10 @@ class AIService {
 
   // Enhanced Chat Response
   async generateChatResponse(message: string, context: any = {}): Promise<AIResponse> {
-    const enhancedPrompt = `You are Selam AI, an intelligent OKR assistant. 
-    
-    User message: "${message}"
-    
-    Context: ${JSON.stringify(context)}
-    
-    Provide a helpful, accurate response that:
-    - Directly addresses the user's question
-    - Provides actionable advice when appropriate
-    - Maintains a professional yet friendly tone
-    - Includes relevant examples if helpful
-    - Stays focused on OKR, goal-setting, and productivity topics
-    
-    Keep the response concise but comprehensive.`;
-    
-    const response = await this.makeRequest('okr-suggest', {
-      prompt: enhancedPrompt,
-      context: {
-        type: 'chat',
-        previousMessages: context.previousMessages || [],
-        userRole: context.userRole || 'employee',
-      },
-      params: {
-        temperature: 0.7,
-        maxOutputTokens: 500,
-      }
+    // Use /chat endpoint for general chat responses
+    const response = await this.makeRequest('chat', {
+      query: message,
+      top_k: 5,
     });
 
     return response;
@@ -359,13 +431,9 @@ class AIService {
     
     Provide 3-5 actionable suggestions for improving OKR performance or next steps.`;
     
-    return this.makeRequest('okr-suggest', {
-      prompt,
-      context,
-      params: {
-        temperature: 0.8,
-        maxOutputTokens: 300,
-      }
+    return this.makeRequest('chat', {
+      query: prompt,
+      top_k: 5,
     });
   }
 }

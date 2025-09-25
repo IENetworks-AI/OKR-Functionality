@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { KeyResult, WeeklyPlan, Task } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { generateWeeklyTasksFromKR, generateDailyTasksFromWeekly } from "@/lib/okrApi";
+import { generateAITasks } from "@/lib/okrAi";
 
 // UUID fallback generator
 const generateUUID = (): string =>
@@ -82,7 +83,7 @@ export function CreatePlanModal({
     }
   }, [availableWeeklyPlans, toast]);
 
-  // Generate tasks from selected Key Result title via backend
+  // Generate tasks from selected Key Result title via backend (simplified)
   const generateAiTasks = async () => {
     if (!selectedKeyResultId) {
       setTasks([]);
@@ -95,17 +96,17 @@ export function CreatePlanModal({
       if (!selectedKR) {
         throw new Error('Selected Key Result not found');
       }
-      const prompt = selectedKR.title;
-      const aiTasks: any[] = await generateWeeklyTasksFromKR(prompt);
+      
+      // Use the new simplified AI service
+      const { tasks: aiTasks, confidence } = await generateAITasks(selectedKR.title, 'weekly');
 
       if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-        const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
         const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
           id: generateUUID(),
           title: t.title || `Task ${index + 1}`,
           priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
           target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
-          weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
+          weight: Math.round(parseFloat(t.weight) || Math.round(100 / aiTasks.length)),
           parentTaskId: undefined,
           achieved: 0,
           krProgress: 0,
@@ -121,7 +122,10 @@ export function CreatePlanModal({
         }
 
         setTasks(normalizedTasks);
-        toast({ title: 'Success', description: 'Tasks loaded' });
+        toast({ 
+          title: 'Success', 
+          description: `Tasks loaded (Confidence: ${Math.round((confidence || 0) * 100)}%)` 
+        });
       } else {
         console.warn('No tasks returned from backend:', aiTasks);
         setTasks([]);
@@ -140,7 +144,7 @@ export function CreatePlanModal({
     }
   };
 
-  // AI generate daily tasks from Weekly Plan task titles
+  // AI generate daily tasks from Weekly Plan task titles (simplified)
   const generateDailyTasksFromWeeklyPlan = async () => {
     if (!selectedWeeklyPlanId) {
       setTasks([]);
@@ -155,17 +159,18 @@ export function CreatePlanModal({
       }
       setSelectedKeyResultId(selectedPlan.keyResultId || '');
 
-      const prompt = selectedPlan.tasks?.map(t => t.title).join(', ') || `Weekly Plan ${selectedPlan.id}`;
-      const aiTasks: any[] = await generateDailyTasksFromWeekly(prompt);
+      const keyResultTitle = selectedPlan.tasks?.map(t => t.title).join(', ') || `Weekly Plan ${selectedPlan.id}`;
+      
+      // Use the new simplified AI service
+      const { tasks: aiTasks, confidence } = await generateAITasks(keyResultTitle, 'daily');
 
       if (Array.isArray(aiTasks) && aiTasks.length > 0) {
-        const totalWeight = aiTasks.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
         const normalizedTasks: TaskWithAI[] = aiTasks.map((t: any, index: number) => ({
           id: generateUUID(),
           title: t.title || `Daily Task ${index + 1}`,
           priority: t.priority && ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
           target: Math.min(Math.max(parseFloat(t.target) || 100, 0), 100),
-          weight: totalWeight ? Math.round(((parseFloat(t.weight) || 100 / aiTasks.length) * 100) / totalWeight) : Math.round(100 / aiTasks.length),
+          weight: Math.round(parseFloat(t.weight) || Math.round(100 / aiTasks.length)),
           parentTaskId: undefined,
           achieved: 0,
           krProgress: 0,
@@ -181,7 +186,10 @@ export function CreatePlanModal({
         }
 
         setTasks(normalizedTasks);
-        toast({ title: 'Success', description: 'Daily tasks generated from weekly plan' });
+        toast({ 
+          title: 'Success', 
+          description: `Daily tasks generated (Confidence: ${Math.round((confidence || 0) * 100)}%)` 
+        });
       } else {
         console.warn('No tasks returned from backend:', aiTasks);
         setTasks([]);

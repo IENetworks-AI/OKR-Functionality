@@ -56,15 +56,18 @@ export async function generateAIObjectiveAndKeyResults(
       title = data.answer.objective;
     }
 
-    // Extract key results from various possible response formats
+    // Extract key results from backend response format
     let aiKRs: any[] = [];
     
-    if (data?.answer?.key_results) {
+    // Handle the backend format: {"answer": {"Key Results": [...]}}
+    if (data?.answer?.["Key Results"]) {
+      aiKRs = data.answer["Key Results"];
+    } else if (data?.answer?.key_results) {
       aiKRs = data.answer.key_results;
     } else if (Array.isArray(data?.answer)) {
       aiKRs = data.answer;
-    } else if (data?.answer?.["Key Results"]) {
-      aiKRs = data.answer["Key Results"];
+    } else if (data?.key_results) {
+      aiKRs = data.key_results;
     } else if (Array.isArray(data?.suggestion)) {
       aiKRs = data.suggestion;
     }
@@ -157,8 +160,13 @@ export async function generateAITasks(
     const data = response.data;
     let tasks: any[] = [];
 
-    // Extract tasks from various possible response formats
-    if (data?.answer?.[`${planType}_tasks`]) {
+    // Extract tasks from backend response format
+    // Handle the exact format: {'weekly_plan': {'WeeklyTasks': [...]}} or {'daily_plan': {'DailyTasks': [...]}}
+    if (data?.[`${planType}_plan`]?.[`${planType === 'weekly' ? 'WeeklyTasks' : 'DailyTasks'}`]) {
+      tasks = data[`${planType}_plan`][`${planType === 'weekly' ? 'WeeklyTasks' : 'DailyTasks'}`];
+    } else if (data?.answer?.[`${planType}_plan`]?.[`${planType === 'weekly' ? 'WeeklyTasks' : 'DailyTasks'}`]) {
+      tasks = data.answer[`${planType}_plan`][`${planType === 'weekly' ? 'WeeklyTasks' : 'DailyTasks'}`];
+    } else if (data?.answer?.[`${planType}_tasks`]) {
       tasks = data.answer[`${planType}_tasks`];
     } else if (data?.answer?.tasks) {
       tasks = data.answer.tasks;

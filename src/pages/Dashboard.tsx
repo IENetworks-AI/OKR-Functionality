@@ -1,6 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { GeneratedOutputDisplay } from "@/components/GeneratedOutputDisplay";
+import { BackendTest } from "@/components/BackendTest";
 import { 
   Target, 
   TrendingUp, 
@@ -188,6 +190,16 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* AI Generated Output */}
+      <div className="mt-6">
+        <GeneratedOutputDisplay />
+      </div>
+
+      {/* Backend Test Component */}
+      <div className="mt-6">
+        <BackendTest />
       </div>
     </div>
   );

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Download, Plus, Edit2, RefreshCw } from "lucide-react";
+import { ChevronLeft, Download, Plus, Edit2, RefreshCw, Sparkles } from "lucide-react";
 import { OKRModal } from "@/components/okr/OKRModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import { generateAIObjectiveAndKeyResults } from "@/lib/okrAi";
 
 interface Objective {
   id: string;
@@ -68,6 +70,18 @@ export default function OKRManagement() {
   const handleEditOKR = (okr: Objective) => {
     setCurrentOKR(okr);
     setShowOKRModal(true);
+  };
+
+  const handleRegenerateOKR = async (objective: Objective) => {
+    const inp = objective.alignment;
+    if (!inp) return; // require dropdown alignment as prompt
+    try {
+      const { title, keyResults, confidence } = await generateAIObjectiveAndKeyResults(inp, true);
+      setObjectives(prev => prev.map(o => o.id === objective.id ? { ...o, title, keyResults } : o));
+      console.log(`Regenerated OKR with ${Math.round((confidence || 0) * 100)}% confidence`);
+    } catch (error) {
+      console.error('Failed to regenerate OKR:', error);
+    }
   };
 
   const calculateProgress = (keyResult: KeyResult): number => {
@@ -215,6 +229,8 @@ export default function OKRManagement() {
                   variant="ghost"
                   size="icon"
                   className="absolute top-2 right-10 h-8 w-8"
+                  onClick={() => handleRegenerateOKR(objective)}
+                  title="Regenerate with AI"
                 >
                   <RefreshCw className="w-4 h-4" />
                 </Button>
@@ -227,7 +243,15 @@ export default function OKRManagement() {
                   <Edit2 className="w-4 h-4" />
                 </Button>
                 
-                <h3 className="font-semibold mb-2 text-lg">{objective.title}</h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="font-semibold text-lg">{objective.title}</h3>
+                  {objective.keyResults.some(kr => kr.id.startsWith('ai-')) && (
+                    <Badge variant="secondary" className="text-xs">
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      AI Generated
+                    </Badge>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground mb-1">Aligned to: {objective.alignment}</p>
                 {objective.deadline && (
                   <p className="text-sm text-muted-foreground mb-4">
