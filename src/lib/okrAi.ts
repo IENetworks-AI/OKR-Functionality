@@ -1,4 +1,4 @@
-import { generateKeyResults } from "@/lib/okrApi";
+import { aiService } from "@/services/aiService";
 
 export type GeneratedKR = {
   id: string;
@@ -9,6 +9,7 @@ export type GeneratedKR = {
   currentValue: number;
   weight: number;
   completed: boolean;
+  description?: string;
   milestones?: {
     id: string;
     title: string;
@@ -19,150 +20,174 @@ export type GeneratedKR = {
 
 export async function generateAIObjectiveAndKeyResults(
   input: string,
-  isAlignment: boolean = false
-): Promise<{ title: string; keyResults: GeneratedKR[] }> {
+  isAlignment: boolean = false,
+  context?: {
+    department?: string;
+    role?: string;
+    timeframe?: string;
+    priority?: 'high' | 'medium' | 'low';
+  }
+): Promise<{ title: string; keyResults: GeneratedKR[]; confidence?: number }> {
   try {
-    let prompt: string;
-    if (isAlignment) {
-      prompt = `Generate an objective title and 3-4 key results for an employee that contribute to the supervisor's key result: "${input}". 
-For each key result, provide:
-1. A title
-2. A weight (sum of all weights should be 100)
-3. A metric type (milestone, percentage, numeric, currency, achieved)
-4. If numeric/percentage/currency: target_value (initial_value is 0)
-5. If milestone: list of milestones with their titles and weights (sum to key result weight)
-
-Return a JSON object with this structure:
-{
-  "objective": "Objective title",
-  "key_results": [
-    {
-      "title": "Key result title",
-      "weight": 25,
-      "metric_type": "milestone",
-      "milestones": [
-        {"title": "Milestone 1", "weight": 10},
-        {"title": "Milestone 2", "weight": 15}
-      ]
-    },
-    {
-      "title": "Key result title",
-      "weight": 35,
-      "metric_type": "numeric",
-      "target_value": 100
-    },
-    {
-      "title": "Key result title",
-      "weight": 40,
-      "metric_type": "percentage",
-      "target_value": 90
-    }
-  ]
-}`;
-    } else {
-      prompt = `Generate 3-4 key results for the objective: "${input}". 
-For each key result, provide:
-1. A title
-2. A weight (sum of all weights should be 100)
-3. A metric type (milestone, percentage, numeric, currency, achieved)
-4. If numeric/percentage/currency: target_value (initial_value is 0)
-5. If milestone: list of milestones with their titles and weights (sum to key result weight)
-
-Return a JSON object with this structure:
-{
-  "key_results": [
-    {
-      "title": "Key result title",
-      "weight": 25,
-      "metric_type": "milestone",
-      "milestones": [
-        {"title": "Milestone 1", "weight": 10},
-        {"title": "Milestone 2", "weight": 15}
-      ]
-    },
-    {
-      "title": "Key result title",
-      "weight": 35,
-      "metric_type": "numeric",
-      "target_value": 100
-    },
-    {
-      "title": "Key result title",
-      "weight": 40,
-      "metric_type": "percentage",
-      "target_value": 90
-    }
-  ]
-}`;
-    }
-
-    const { suggestion, error, raw } = await generateKeyResults(input);
-
-    if (error) {
-      console.error("Backend API Error:", error);
-      return { title: input, keyResults: [] };
-    }
-
-    const title = input;
-
-    // The backend sometimes wraps the JSON in fenced code blocks; extract the first JSON array if needed
-    const extractFirstJsonArray = (rawAnswer: any): any[] => {
-      if (Array.isArray(rawAnswer)) return rawAnswer;
-      if (typeof rawAnswer !== 'string') return [];
-      const cleaned = rawAnswer.replace(/```json/gi, '').replace(/```/g, '').trim();
-      const match = cleaned.match(/\[[\s\S]*?\]/);
-      if (!match) return [];
-      try {
-        const parsed = JSON.parse(match[0]);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
+    const request = {
+      objective: input,
+      context: {
+        department: context?.department || 'general',
+        role: context?.role || 'employee',
+        timeframe: context?.timeframe || 'quarterly',
+        priority: context?.priority || 'medium',
+      },
+      type: isAlignment ? 'objective' as const : 'key_results' as const,
     };
 
-    // Prefer structured array under answer["Key Results"], else parse from answer string
-    let aiKRs: any[] = [];
-    if (Array.isArray((raw as any)?.answer?.["Key Results"])) {
-      aiKRs = (raw as any).answer["Key Results"];
-    } else if (Array.isArray(suggestion)) {
-      aiKRs = suggestion;
-    } else {
-      aiKRs = extractFirstJsonArray((raw as any)?.answer ?? suggestion);
+    const response = await aiService.generateOKR(request);
+
+    if (!response.success) {
+      console.error("AI Service Error:", response.error);
+      return { title: input, keyResults: [], confidence: 0 };
     }
 
-    if (!Array.isArray(aiKRs)) return { title, keyResults: [] };
+    const data = response.data;
+    let title = input;
+    let keyResults: GeneratedKR[] = [];
 
-    const keyResults: GeneratedKR[] = aiKRs.map((kr: any, index: number) => {
-      const baseKR: GeneratedKR = {
-        id: `ai-${Date.now()}-${index}`,
-        title: kr.title || "Untitled",
-        progress: 0,
-        metricType: kr.metric_type || "numeric",
-        targetValue: kr.target_value ?? 100,
-        currentValue: kr.initial_value ?? 0,
-        weight: kr.weight ?? Math.round(100 / (aiKRs.length || 1)),
-        completed: false,
-      };
+    // Extract title and key results from response
+    if (isAlignment && data?.answer?.objective) {
+      title = data.answer.objective;
+    }
 
-      if (kr.metric_type === "milestone" && Array.isArray(kr.milestones)) {
-        return {
-          ...baseKR,
-          metricType: "milestone",
-          milestones: kr.milestones.map((m: any, mIndex: number) => ({
-            id: `m-${Date.now()}-${index}-${mIndex}`,
-            title: m.title || `Milestone ${mIndex + 1}`,
-            completed: false,
-            weight: m.weight || Math.round(baseKR.weight / (kr.milestones.length || 1)),
-          })),
+    // Extract key results from various possible response formats
+    let aiKRs: any[] = [];
+    
+    if (data?.answer?.key_results) {
+      aiKRs = data.answer.key_results;
+    } else if (Array.isArray(data?.answer)) {
+      aiKRs = data.answer;
+    } else if (data?.answer?.["Key Results"]) {
+      aiKRs = data.answer["Key Results"];
+    } else if (Array.isArray(data?.suggestion)) {
+      aiKRs = data.suggestion;
+    }
+
+    if (Array.isArray(aiKRs) && aiKRs.length > 0) {
+      keyResults = aiKRs.map((kr: any, index: number) => {
+        const baseKR: GeneratedKR = {
+          id: `ai-${Date.now()}-${index}`,
+          title: kr.title || `Key Result ${index + 1}`,
+          progress: 0,
+          metricType: kr.metric_type || kr.metricType || "numeric",
+          targetValue: kr.target_value ?? kr.targetValue ?? 100,
+          currentValue: kr.initial_value ?? kr.currentValue ?? 0,
+          weight: kr.weight ?? Math.round(100 / aiKRs.length),
+          completed: false,
+          description: kr.description || kr.rationale,
         };
+
+        // Handle milestone type
+        if (baseKR.metricType === "milestone" && (kr.milestones || kr.sub_milestones)) {
+          const milestones = kr.milestones || kr.sub_milestones || [];
+          return {
+            ...baseKR,
+            milestones: milestones.map((m: any, mIndex: number) => ({
+              id: `m-${Date.now()}-${index}-${mIndex}`,
+              title: m.title || `Milestone ${mIndex + 1}`,
+              completed: false,
+              weight: m.weight || Math.round(baseKR.weight / milestones.length),
+            })),
+          };
+        }
+
+        return baseKR;
+      });
+
+      // Normalize weights to ensure they sum to 100
+      const totalWeight = keyResults.reduce((sum, kr) => sum + kr.weight, 0);
+      if (totalWeight !== 100) {
+        const factor = 100 / totalWeight;
+        keyResults = keyResults.map(kr => ({
+          ...kr,
+          weight: Math.round(kr.weight * factor),
+        }));
       }
+    }
 
-      return baseKR;
-    });
+    return { 
+      title, 
+      keyResults, 
+      confidence: response.confidence || 0.8 
+    };
+  } catch (error) {
+    console.error("OKR Generation Error:", error);
+    return { 
+      title: input, 
+      keyResults: [], 
+      confidence: 0 
+    };
+  }
+}
 
-    return { title, keyResults };
-  } catch (parseError) {
-    console.error("Parse error:", parseError);
-    return { title: input, keyResults: [] };
+// Enhanced function for generating tasks
+export async function generateAITasks(
+  keyResult: string,
+  planType: 'daily' | 'weekly',
+  context?: {
+    complexity?: 'simple' | 'medium' | 'complex';
+    duration?: string;
+    resources?: string[];
+  }
+): Promise<{ tasks: any[]; confidence?: number }> {
+  try {
+    const request = {
+      keyResult,
+      planType,
+      context: {
+        complexity: context?.complexity || 'medium',
+        duration: context?.duration || (planType === 'daily' ? '1 day' : '1 week'),
+        resources: context?.resources || [],
+      },
+    };
+
+    const response = await aiService.generateTasks(request);
+
+    if (!response.success) {
+      console.error("Task Generation Error:", response.error);
+      return { tasks: [], confidence: 0 };
+    }
+
+    const data = response.data;
+    let tasks: any[] = [];
+
+    // Extract tasks from various possible response formats
+    if (data?.answer?.[`${planType}_tasks`]) {
+      tasks = data.answer[`${planType}_tasks`];
+    } else if (data?.answer?.tasks) {
+      tasks = data.answer.tasks;
+    } else if (Array.isArray(data?.answer)) {
+      tasks = data.answer;
+    } else if (Array.isArray(data?.suggestion)) {
+      tasks = data.suggestion;
+    }
+
+    // Normalize task structure
+    const normalizedTasks = tasks.map((task: any, index: number) => ({
+      id: `task-${Date.now()}-${index}`,
+      title: task.title || `Task ${index + 1}`,
+      priority: task.priority || 'Medium',
+      target: task.target || 100,
+      weight: task.weight || Math.round(100 / tasks.length),
+      description: task.description || '',
+      estimatedDuration: task.estimated_duration || task.duration,
+    }));
+
+    return { 
+      tasks: normalizedTasks, 
+      confidence: response.confidence || 0.8 
+    };
+  } catch (error) {
+    console.error("Task Generation Error:", error);
+    return { 
+      tasks: [], 
+      confidence: 0 
+    };
   }
 }
