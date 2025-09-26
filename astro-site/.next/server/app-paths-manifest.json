@@ -1,7 +1,0 @@
-{
-  "/_not-found/page": "app/_not-found/page.js",
-  "/(pages)/services/consultation/page": "app/(pages)/services/consultation/page.js",
-  "/(pages)/services/voice-report/page": "app/(pages)/services/voice-report/page.js",
-  "/(pages)/services/online-reports/page": "app/(pages)/services/online-reports/page.js",
-  "/page": "app/page.js"
-}
