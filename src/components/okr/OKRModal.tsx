@@ -64,11 +64,18 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
 
   // Supervisor's key results for alignment (hardcoded as per screenshot feasibility)
   const supervisorKeyResults = [
-    "Increase customer retention rate by 15%",
-    "Reduce customer churn by 8% this quarter", 
-    "Achieve 95% customer satisfaction score",
-    "Generate 1.5M revenue from existing customers",
-    "Expand market share by 12%"
+    "Identify and Evaluate 6 High-Impact AI Use Cases and define Implementation Roadmap for the 3 Priority Use Cases",
+    "Build and Present AI MVP Implementation Roadmap and get validation from all stakeholders",
+    "Launch and Operationalize Sprint-1 for the First AI MVP",
+    "Finalize 100% product design for AI features in OKR Assistant",
+    "Finalize 100% product design for AI features for SCM enhancement",
+    "Conduct stakeholder session and get validation from the CEO",
+    "Complete 100% of Test Deployment for AI Features in OKR module",
+    "Complete 100% of Test Deployment for AI Features in SCM",
+    "Run Functional and UX Validation with Stakeholders and achieve Minimum 80% of functional and UX test items",
+    "Achieve 6 TNA for AI and Data Engineers",
+    "Attend 6 Sprint meeting, and Conduct 6 Bi-weekly",
+    "Attend 6 Division meeting"
   ];
 
   useEffect(() => {
