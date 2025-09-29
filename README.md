@@ -73,31 +73,33 @@ This project includes AI-powered OKR suggestions. To enable this feature:
    MODEL_NAME=your-model-name
    ```
 
-### Supported AI Providers
+### Backend Configuration
 
-- **Google Gemini 2.0 Flash** (Currently Configured): 
-  - URL: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`
-  - Get your API key from: [Google AI Studio](https://makersuite.google.com/app/apikey)
-  - Latest model with improved performance and speed
-  - Free tier available with generous limits
-- **OpenAI**: Use `https://api.openai.com/v1/chat/completions` with your OpenAI API key
-- **Anthropic**: Use `https://api.anthropic.com/v1/messages` with your Anthropic API key  
-- **Custom/Local APIs**: Configure your own endpoint
+This application is configured to use a FastAPI backend server for AI-powered OKR suggestions:
 
-### Troubleshooting AI Issues
+- **Backend Server**: `http://172.20.30.72` (accessed via Vite proxy)
+- **Proxy Setup**: Requests are proxied through `/api/backend/*` to avoid CORS issues
+- **Endpoints**:
+  - `/chat` - Generate key results from objectives
+  - `/weekly-plan` - Generate weekly tasks from key results  
+  - `/daily-plan` - Generate daily tasks from annual key results
+- **No API keys required** - Backend handles all AI processing
 
-If you encounter "Unexpected end of JSON input" errors:
+### Troubleshooting Backend Issues
 
-1. Check that your `MODEL_API_URL` is correct and accessible
-2. Verify your `MODEL_API_KEY` is valid and not expired
-3. For Gemini API: Get a fresh API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
-4. Ensure your AI provider is returning valid JSON responses
-5. Check the browser console and Netlify function logs for detailed error messages
+If you encounter connection or response errors:
+
+1. Ensure your FastAPI backend server is running on `http://172.20.30.72`
+2. Check that all three endpoints (`/chat`, `/weekly-plan`, `/daily-plan`) are accessible
+3. Verify the backend is returning valid JSON responses
+4. Check the browser console for detailed error messages
+5. Ensure your backend server supports CORS for the frontend domain
 
 **Common Issues:**
-- **API Key Expired**: Gemini API keys can expire - generate a new one
-- **Rate Limits**: Check if you've exceeded your API quota
-- **Network Issues**: Ensure your deployment can access external APIs
+- **Connection Refused**: Backend server may be down or unreachable
+- **CORS Errors**: Backend needs to allow requests from your frontend domain
+- **Invalid Response Format**: Backend should return JSON with expected structure
+- **Network Issues**: Check firewall and network connectivity to the backend
 
 ## How can I deploy this project?
 

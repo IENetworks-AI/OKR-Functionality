@@ -153,7 +153,7 @@ export type OkrSuggestParams = {
   prompt: string;
   context?: any;
   params?: Record<string, any>;
-  provider?: 'gemini' | 'mistral';
+  provider?: 'backend';
 };
 
 export type OkrSuggestResponse = {
@@ -184,7 +184,7 @@ export async function generateKeyResults(objective: string): Promise<OkrSuggestR
   }
 }
 
-// 🔄 Unified entry point (forced to backend, no Gemini)
+// 🔄 Unified entry point (backend only)
 export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   try {
     const resp = await fetch(`/api/chat`, {

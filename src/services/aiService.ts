@@ -34,8 +34,8 @@ class AIService {
   private retryDelay = 1000;
 
   constructor() {
-    // Use proxy endpoints to avoid CORS issues
-    this.baseUrl = "/api";
+    // Use Vite proxy to avoid CORS issues
+    this.baseUrl = "/api/backend";
   }
 
   async makeRequest(
@@ -44,7 +44,7 @@ class AIService {
     retryCount = 0
   ): Promise<AIResponse> {
     try {
-      // Use proxy endpoints to avoid CORS issues
+      // Use your FastAPI backend directly
       const response = await fetch(`${this.baseUrl}/${endpoint}`, {
         method: 'POST',
         headers: {
@@ -62,48 +62,43 @@ class AIService {
       const data = await response.json();
       console.log('Backend Response:', data);
       
-      if (data.error) {
-        // If there's an error but raw_answer exists, try to parse it
-        if (data.raw_answer) {
-          console.log('Attempting to parse raw_answer due to JSON error');
-          try {
-            // Clean and extract JSON from the raw_answer text
-            let jsonText = data.raw_answer.trim();
+      // Handle backend response format - check for error and raw_answer
+      if (data.error && data.raw_answer) {
+        console.log('Backend returned error with raw_answer, attempting to parse...');
+        try {
+          // Clean and parse the raw_answer JSON
+          let jsonText = data.raw_answer.trim();
+          
+          // Remove any leading/trailing text that's not JSON
+          const jsonStart = jsonText.indexOf('{');
+          const jsonEnd = jsonText.lastIndexOf('}');
+          
+          if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
             
-            // Remove any leading/trailing text that's not JSON
-            const jsonStart = jsonText.indexOf('{');
-            const jsonEnd = jsonText.lastIndexOf('}');
-            
-            if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-              jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
-              const parsedData = JSON.parse(jsonText);
-              return {
-                success: true,
-                data: { answer: parsedData },
-                confidence: this.calculateConfidence(parsedData),
-              };
+            // Fix common JSON issues (missing closing brackets, etc.)
+            if (!jsonText.endsWith('}')) {
+              jsonText += '}';
             }
-          } catch (parseError) {
-            console.error('Failed to parse raw_answer:', parseError);
-            console.log('Raw answer content:', data.raw_answer);
+            
+            const parsedData = JSON.parse(jsonText);
+            return {
+              success: true,
+              data: { answer: parsedData },
+              confidence: this.calculateConfidence(parsedData),
+            };
           }
+        } catch (parseError) {
+          console.error('Failed to parse raw_answer:', parseError);
+          console.log('Raw answer content:', data.raw_answer);
         }
-        throw new Error(data.error);
       }
-
-      // Handle direct response format (e.g., {daily_plan: {...}})
-      if (data.daily_plan || data.weekly_plan) {
-        return {
-          success: true,
-          data: { answer: data },
-          confidence: this.calculateConfidence(data),
-        };
-      }
-
+      
+      // Handle successful response or fallback
       return {
         success: true,
-        data: data,
-        confidence: this.calculateConfidence(data),
+        data: { answer: data.answer || data },
+        confidence: this.calculateConfidence(data.answer || data),
       };
     } catch (error) {
       console.error(`AI Service Error (attempt ${retryCount + 1}):`, error);
@@ -113,101 +108,14 @@ class AIService {
         return this.makeRequest(endpoint, payload, retryCount + 1);
       }
 
-      // Fallback to Gemini if backend fails
-      console.log('Backend failed, attempting Gemini fallback...');
-      return this.fallbackToGemini(payload);
-    }
-  }
-
-  // Gemini fallback - enabled due to CORS issues with ngrok backend
-  private async fallbackToGemini(payload: any): Promise<AIResponse> {
-    try {
-      const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!geminiApiKey) {
-        throw new Error('Gemini API key not configured');
-      }
-
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
-      
-      const prompt = this.buildGeminiPrompt(payload);
-      
-      const response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1000,
-          }
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Gemini API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (!generatedText) {
-        throw new Error('No response from Gemini');
-      }
-
-      // Parse Gemini response to match expected format
-      const parsedData = this.parseGeminiResponse(generatedText, payload);
-      
-      return {
-        success: true,
-        data: parsedData,
-        confidence: 0.8,
-      };
-    } catch (error) {
-      console.error('Gemini fallback failed:', error);
+      // Return error if all retries failed
       return {
         success: false,
-        error: `Both backend and Gemini failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error: `Backend failed after ${this.retryAttempts} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`,
       };
     }
   }
 
-  // Build prompt for Gemini
-  private buildGeminiPrompt(payload: any): string {
-    if (payload.query) {
-      // For chat/OKR generation requests
-      return `Generate 3-4 key results for the objective: "${payload.query}". 
-      Return JSON format: {"Key Results": [{"title": "string", "metric_type": "milestone|percentage|numeric|currency|achieved", "initial_value": 0, "target_value": number, "status": "not_started"}]}`;
-    } else if (payload.key_result) {
-      // For weekly plan requests
-      return `Generate weekly tasks for: "${payload.key_result}". 
-      Return JSON format: {"WeeklyTasks": [{"title": "string", "target": 100, "weight": number, "priority": "high|medium|low"}]}`;
-    } else if (payload.annual_key_result) {
-      // For daily plan requests
-      return `Generate daily tasks for: "${payload.annual_key_result}". 
-      Return JSON format: {"DailyTasks": [{"title": "string", "weight": number, "priority": "high|medium|low"}]}`;
-    }
-    return '';
-  }
-
-  // Parse Gemini response
-  private parseGeminiResponse(text: string, payload: any): any {
-    try {
-      // Extract JSON from Gemini response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    } catch (error) {
-      console.error('Failed to parse Gemini response:', error);
-    }
-    return {};
-  }
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -234,7 +142,7 @@ class AIService {
 
   // OKR Generation using /chat endpoint for key results
   async generateOKR(request: OKRGenerationRequest): Promise<AIResponse> {
-    // Use /chat endpoint for key results generation
+    // Use /chat endpoint for key results generation (matches your Streamlit example)
     const response = await this.makeRequest('chat', {
       query: request.objective,
       top_k: 5,
@@ -314,7 +222,7 @@ class AIService {
     return basePrompt;
   }
 
-  // Task Generation using specific endpoints
+  // Task Generation using specific endpoints (matches your Streamlit example)
   async generateTasks(request: TaskGenerationRequest): Promise<AIResponse> {
     let endpoint: string;
     let payload: any;
@@ -376,7 +284,7 @@ class AIService {
 
   // Enhanced Chat Response
   async generateChatResponse(message: string, context: any = {}): Promise<AIResponse> {
-    // Use /chat endpoint for general chat responses
+    // Use /chat endpoint for general chat responses (matches your Streamlit example)
     const response = await this.makeRequest('chat', {
       query: message,
       top_k: 5,

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, TestTube, CheckCircle, XCircle } from 'lucide-react';
 import { aiService } from '@/services/aiService';
+import { AIResponseDisplay } from '@/components/AIResponseDisplay';
 
 interface TestResult {
   endpoint: string;
@@ -38,6 +39,18 @@ export function BackendTest() {
       };
       
       setTestResults(prev => [result, ...prev]);
+      
+      // If successful, add to dashboard
+      if (result.success && result.data?.answer) {
+        const addResponse = (window as any).addAIResponse;
+        if (addResponse) {
+          const title = endpoint === 'chat' ? 'AI Generated Key Results' :
+                       endpoint === 'weekly-plan' ? 'Weekly Plan Generation' :
+                       'Daily Plan Generation';
+          addResponse(endpoint as 'chat' | 'weekly-plan' | 'daily-plan', title, result.data.answer, 0.9);
+        }
+      }
+      
       return result;
     } catch (error) {
       const duration = Date.now() - startTime;
@@ -178,9 +191,14 @@ export function BackendTest() {
                   {result.success ? (
                     <div className="space-y-2">
                       <p className="text-sm text-green-600 font-medium">✅ Success</p>
-                      <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-40">
-                        {JSON.stringify(result.data, null, 2)}
-                      </pre>
+                      {result.data?.answer && (
+                        <AIResponseDisplay 
+                          response={result.data.answer}
+                          type={result.endpoint as 'chat' | 'weekly-plan' | 'daily-plan'}
+                          title={`${result.endpoint.toUpperCase()} Response`}
+                          confidence={0.9}
+                        />
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -196,26 +214,26 @@ export function BackendTest() {
 
         {/* Backend URL Info */}
         <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
-          <p><strong>Backend URL:</strong> http://139.185.33.139</p>
+          <p><strong>Backend URL:</strong> http://172.20.30.72 (via Vite proxy)</p>
           <p><strong>Endpoints:</strong> /chat, /weekly-plan, /daily-plan</p>
           <p><strong>Expected Response Format:</strong></p>
           <ul className="list-disc list-inside ml-4 space-y-1">
             <li>
               <code>/chat</code>:&nbsp;
               <code>
-                {'{'}"answer": {'{'}"Key Results": [...] {'}'}{'}'}
+                {'{'}"Key Results": [...] {'}'}
               </code>
             </li>
             <li>
               <code>/weekly-plan</code>:&nbsp;
               <code>
-                {'{'}"weekly_plan": {'{'}"WeeklyTasks": [...] {'}'}{'}'}
+                {'{'}"WeeklyTasks": [...] {'}'}
               </code>
             </li>
             <li>
               <code>/daily-plan</code>:&nbsp;
               <code>
-                {'{'}"daily_plan": {'{'}"DailyTasks": [...] {'}'}{'}'}
+                {'{'}"DailyTasks": [...] {'}'}
               </code>
             </li>
           </ul>

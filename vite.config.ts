@@ -15,36 +15,13 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/okr-suggest/, "/.netlify/functions/okr-suggest"),
       },
-      "/api/chat": {
-        target: "https://172.20.30.72",
+      "/api/backend": {
+        target: "http://172.20.30.72",
         changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/api\/chat/, "/chat"),
+        rewrite: (path) => path.replace(/^\/api\/backend/, ""),
         configure: (proxy, _options) => {
           proxy.on('proxyReq', (proxyReq, req, _res) => {
-            proxyReq.setHeader('ngrok-skip-browser-warning', 'true');
-          });
-        },
-      },
-      "/api/weekly-plan": {
-        target: "https://172.20.30.72",
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/api\/weekly-plan/, "/weekly-plan"),
-        configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            proxyReq.setHeader('ngrok-skip-browser-warning', 'true');
-          });
-        },
-      },
-      "/api/daily-plan": {
-        target: "https://172.20.30.72",
-        changeOrigin: true,
-        secure: true,
-        rewrite: (path) => path.replace(/^\/api\/daily-plan/, "/daily-plan"),
-        configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            proxyReq.setHeader('ngrok-skip-browser-warning', 'true');
+            // Remove the ngrok header since we're not using ngrok anymore
           });
         },
       },
