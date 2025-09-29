@@ -77,8 +77,10 @@ This project includes AI-powered OKR suggestions. To enable this feature:
 
 This application is configured to use a FastAPI backend server for AI-powered OKR suggestions:
 
-- **Backend Server**: `http://172.20.30.72` (accessed via Vite proxy)
-- **Proxy Setup**: Requests are proxied through `/api/backend/*` to avoid CORS issues
+- **Backend Server**: `http://172.20.30.72`
+- **Connection**: Direct connection to backend server
+- **CORS**: Handled by browser settings or backend configuration
+- **Works**: Both in development and production environments
 - **Endpoints**:
   - `/chat` - Generate key results from objectives
   - `/weekly-plan` - Generate weekly tasks from key results  

@@ -131,6 +131,51 @@ app.post('/.netlify/functions/okr-suggest', async (req, res) => {
   }
 });
 
+// Backend proxy function for development
+app.use('/.netlify/functions/backend-proxy', async (req, res) => {
+  try {
+    const { method, body, headers } = req;
+    
+    // Extract the endpoint from the path (remove /backend-proxy prefix)
+    const endpoint = req.path.replace('/.netlify/functions/backend-proxy', '');
+    
+    // Backend server URL
+    const backendUrl = 'http://172.20.30.72';
+    const targetUrl = `${backendUrl}${endpoint}`;
+    
+    console.log(`Proxying ${method} request to: ${targetUrl}`);
+    
+    // Prepare headers for the backend request
+    const backendHeaders = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Forward the request to the backend
+    const response = await fetch(targetUrl, {
+      method: method,
+      headers: backendHeaders,
+      body: method !== 'GET' ? JSON.stringify(body) : undefined,
+    });
+    
+    const responseText = await response.text();
+    let responseData;
+    
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (e) {
+      responseData = { error: 'Invalid JSON response', raw: responseText };
+    }
+    
+    res.json(responseData);
+  } catch (error) {
+    console.error('Backend proxy error:', error);
+    res.status(500).json({
+      error: 'Backend proxy error',
+      message: error.message,
+    });
+  }
+});
+
 // Proxy all other requests to Vite
 app.use('/', createProxyMiddleware({
   target: 'http://localhost:5173',

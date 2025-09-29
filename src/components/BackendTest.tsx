@@ -214,7 +214,7 @@ export function BackendTest() {
 
         {/* Backend URL Info */}
         <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
-          <p><strong>Backend URL:</strong> http://172.20.30.72 (via Vite proxy)</p>
+          <p><strong>Backend URL:</strong> http://172.20.30.72 (direct connection)</p>
           <p><strong>Endpoints:</strong> /chat, /weekly-plan, /daily-plan</p>
           <p><strong>Expected Response Format:</strong></p>
           <ul className="list-disc list-inside ml-4 space-y-1">

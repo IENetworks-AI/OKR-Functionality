@@ -19,11 +19,6 @@ export default defineConfig(({ mode }) => ({
         target: "http://172.20.30.72",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/backend/, ""),
-        configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            // Remove the ngrok header since we're not using ngrok anymore
-          });
-        },
       },
     },
   },

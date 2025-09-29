@@ -34,8 +34,14 @@ class AIService {
   private retryDelay = 1000;
 
   constructor() {
-    // Use Vite proxy to avoid CORS issues
-    this.baseUrl = "/api/backend";
+    // Use different endpoints for development vs production
+    if (import.meta.env.DEV) {
+      // Development: use Vite proxy
+      this.baseUrl = "/api/backend";
+    } else {
+      // Production: use Netlify function
+      this.baseUrl = "/.netlify/functions/backend-proxy";
+    }
   }
 
   async makeRequest(
@@ -49,8 +55,10 @@ class AIService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify(payload),
+        mode: 'cors', // Explicitly set CORS mode
       });
 
       if (!response.ok) {
@@ -76,10 +84,8 @@ class AIService {
           if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
             jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
             
-            // Fix common JSON issues (missing closing brackets, etc.)
-            if (!jsonText.endsWith('}')) {
-              jsonText += '}';
-            }
+            // Fix common JSON issues
+            jsonText = this.repairJSON(jsonText);
             
             const parsedData = JSON.parse(jsonText);
             return {
@@ -91,6 +97,20 @@ class AIService {
         } catch (parseError) {
           console.error('Failed to parse raw_answer:', parseError);
           console.log('Raw answer content:', data.raw_answer);
+          
+          // Try to extract partial data even if JSON is malformed
+          try {
+            const partialData = this.extractPartialData(data.raw_answer);
+            if (partialData) {
+              return {
+                success: true,
+                data: { answer: partialData },
+                confidence: 0.6, // Lower confidence for repaired data
+              };
+            }
+          } catch (extractError) {
+            console.error('Failed to extract partial data:', extractError);
+          }
         }
       }
       
@@ -119,6 +139,84 @@ class AIService {
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private repairJSON(jsonText: string): string {
+    // Fix common JSON issues
+    let repaired = jsonText;
+    
+    // Ensure proper closing brackets
+    const openBraces = (repaired.match(/\{/g) || []).length;
+    const closeBraces = (repaired.match(/\}/g) || []).length;
+    const openBrackets = (repaired.match(/\[/g) || []).length;
+    const closeBrackets = (repaired.match(/\]/g) || []).length;
+    
+    // Add missing closing brackets
+    for (let i = 0; i < openBraces - closeBraces; i++) {
+      repaired += '}';
+    }
+    
+    for (let i = 0; i < openBrackets - closeBrackets; i++) {
+      repaired += ']';
+    }
+    
+    // Fix trailing commas before closing brackets
+    repaired = repaired.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Fix missing commas between array elements
+    repaired = repaired.replace(/\}\s*\{/g, '}, {');
+    repaired = repaired.replace(/\]\s*\[/g, '], [');
+    
+    return repaired;
+  }
+
+  private extractPartialData(rawText: string): any {
+    try {
+      // Try to extract key results from malformed JSON
+      const keyResultsMatch = rawText.match(/"Key Results":\s*\[([\s\S]*?)(?:\]|$)/);
+      if (keyResultsMatch) {
+        const keyResultsText = keyResultsMatch[1];
+        
+        // Extract individual key result objects
+        const keyResultMatches = keyResultsText.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+        if (keyResultMatches) {
+          const keyResults = keyResultMatches.map(krText => {
+            try {
+              // Clean up the key result text
+              let cleanKR = krText.trim();
+              if (!cleanKR.endsWith('}')) {
+                cleanKR += '}';
+              }
+              
+              // Fix common issues in individual key results
+              cleanKR = cleanKR.replace(/,(\s*})/g, '$1');
+              
+              return JSON.parse(cleanKR);
+            } catch (e) {
+              // If individual parsing fails, create a basic structure
+              const titleMatch = krText.match(/"title":\s*"([^"]*)"/);
+              const weightMatch = krText.match(/"weight":\s*([0-9.]+)/);
+              const metricTypeMatch = krText.match(/"metric_type":\s*"([^"]*)"/);
+              
+              return {
+                title: titleMatch ? titleMatch[1] : 'Generated Key Result',
+                weight: weightMatch ? parseFloat(weightMatch[1]) : 0.25,
+                metric_type: metricTypeMatch ? metricTypeMatch[1] : 'numeric',
+                target_value: 100,
+                initial_value: 0
+              };
+            }
+          });
+          
+          return { "Key Results": keyResults };
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error extracting partial data:', error);
+      return null;
+    }
   }
 
   private calculateConfidence(data: any): number {

@@ -44,12 +44,15 @@ export async function generateAIObjectiveAndKeyResults(
 
     if (!response.success) {
       console.error("AI Service Error:", response.error);
+      console.error("Response data:", response.data);
       return { title: input, keyResults: [], confidence: 0 };
     }
 
     const data = response.data;
     let title = input;
     let keyResults: GeneratedKR[] = [];
+
+    console.log("Processing AI response data:", data);
 
     // Extract title and key results from response
     if (isAlignment && data?.answer?.objective) {
@@ -70,7 +73,15 @@ export async function generateAIObjectiveAndKeyResults(
       aiKRs = data.key_results;
     } else if (Array.isArray(data?.suggestion)) {
       aiKRs = data.suggestion;
+    } else if (data?.answer && typeof data.answer === 'object') {
+      // Fallback: look for any array property in the answer
+      const possibleArrays = Object.values(data.answer).filter(Array.isArray);
+      if (possibleArrays.length > 0) {
+        aiKRs = possibleArrays[0] as any[];
+      }
     }
+
+    console.log("Extracted key results array:", aiKRs);
 
     if (Array.isArray(aiKRs) && aiKRs.length > 0) {
       keyResults = aiKRs.map((kr: any, index: number) => {
