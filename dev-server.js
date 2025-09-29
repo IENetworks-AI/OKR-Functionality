@@ -46,7 +46,7 @@ app.post('/.netlify/functions/okr-suggest', async (req, res) => {
     }
 
     // Hit the same backend as production function
-    const apiUrl = 'https://1a83c07684f3.ngrok-free.app/chat';
+    const apiUrl = 'https://172.20.30.72/chat';
     const upstream = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

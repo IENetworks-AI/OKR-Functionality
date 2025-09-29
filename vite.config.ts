@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
         rewrite: (path) => path.replace(/^\/api\/okr-suggest/, "/.netlify/functions/okr-suggest"),
       },
       "/api/chat": {
-        target: "https://1a83c07684f3.ngrok-free.app",
+        target: "https://172.20.30.72",
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/chat/, "/chat"),
@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => ({
         },
       },
       "/api/weekly-plan": {
-        target: "https://1a83c07684f3.ngrok-free.app",
+        target: "https://172.20.30.72",
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/weekly-plan/, "/weekly-plan"),
@@ -38,7 +38,7 @@ export default defineConfig(({ mode }) => ({
         },
       },
       "/api/daily-plan": {
-        target: "https://1a83c07684f3.ngrok-free.app",
+        target: "https://172.20.30.72",
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/daily-plan/, "/daily-plan"),
