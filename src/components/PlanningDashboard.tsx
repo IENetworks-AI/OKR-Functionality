@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/select';
 import { CreatePlanModal } from './CreatePlanModal';
 import { ReportingDashboard } from './ReportingDashboard';
-import { fetchPlans } from '@/lib/okrApi';
+import { fetchPlans, fetchUserKeyResults, fetchWeeklyPlans } from '@/lib/okrApi';
 import { KeyResult, Employee, Task, Plan } from '@/types';
 import { toast } from "sonner";
 
@@ -45,13 +45,33 @@ export function PlanningDashboard() {
     setLoading(true);
     setError(null);
 
-    Promise.all(['Daily', 'Weekly'].map((tab) => fetchPlans(tab as 'Daily' | 'Weekly')))
-      .then(([dailyData, weeklyData]) => {
+    const loadData = async () => {
+      try {
+        // Fetch plans from both endpoints
+        const [dailyData, weeklyData] = await Promise.all([
+          fetchPlans('Daily'),
+          fetchPlans('Weekly')
+        ]);
+        
         setPlans({ Daily: dailyData.plans, Weekly: weeklyData.plans });
 
-        // Deduplicate keyResults across daily and weekly plans
+        // Get key results from plans
         const allKeyResults = [...dailyData.keyResults, ...weeklyData.keyResults];
-        // Deduplicate by stable composite key (kr.id + owner.id). If API reuses kr.id across contexts, the owner disambiguates.
+        
+        // Optionally fetch direct user key results if USER_ID is configured
+        const userId = import.meta.env.VITE_USER_ID_TO_FETCH;
+        if (userId) {
+          try {
+            const userKeyResults = await fetchUserKeyResults(userId);
+            console.log('Fetched direct user key results:', userKeyResults.length);
+            // Merge with existing key results
+            allKeyResults.push(...userKeyResults);
+          } catch (err) {
+            console.warn('Could not fetch direct user key results:', err);
+          }
+        }
+
+        // Deduplicate keyResults by stable composite key (kr.id + owner.id)
         const uniqueKeyResults = Array.from(
           new Map(
             allKeyResults.map((kr) => [`${kr.id}-${kr.owner.id}`, kr])
@@ -83,13 +103,16 @@ export function PlanningDashboard() {
         if (!selectedEmployeeId && allEmployees.length > 0) {
           setSelectedEmployeeId(allEmployees[0].id);
         }
-      })
-      .catch((err: Error) => {
-        const msg = `Failed to load plans: ${err.message}`;
+      } catch (err) {
+        const msg = `Failed to load plans: ${err instanceof Error ? err.message : String(err)}`;
         setError(msg);
         toast({ variant: 'destructive', title: 'Error', description: msg });
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
   }, [toast, selectedEmployeeId]);
 
   const employeeKRs = keyResults.filter((kr) => kr.owner.id === selectedEmployeeId);
