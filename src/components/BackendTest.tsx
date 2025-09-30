@@ -21,19 +21,30 @@ export function BackendTest() {
   const [testInputs, setTestInputs] = useState({
     objective: 'Increase customer satisfaction',
     keyResult: 'Achieve 95% customer satisfaction score',
-    annualKeyResult: 'Launch new product line successfully',
+    weeklyPlan: 'Complete data pipeline implementation',
   });
 
   const runTest = async (endpoint: string, payload: any) => {
     const startTime = Date.now();
     try {
       let response: any;
-      if (endpoint === 'chat') {
-        response = await aiService.generateChat(payload.query, payload.top_k);
+      if (endpoint === 'okr') {
+        response = await aiService.generateOKR({
+          objective: payload.objective,
+          type: 'key_results'
+        });
       } else if (endpoint === 'weekly-plan') {
-        response = await aiService.generateWeeklyPlan(payload.key_result, payload.top_k);
+        response = await aiService.generateTasks({
+          keyResult: payload.key_result,
+          planType: 'weekly'
+        });
       } else if (endpoint === 'daily-plan') {
-        response = await aiService.generateDailyPlan(payload.annual_key_result, payload.top_k);
+        response = await aiService.generateTasks({
+          keyResult: payload.weekly_plan,
+          planType: 'daily'
+        });
+      } else if (endpoint === 'copilot') {
+        response = await aiService.getOKRExplanation(payload.query);
       } else {
         throw new Error(`Unknown endpoint: ${endpoint}`);
       }
@@ -53,10 +64,11 @@ export function BackendTest() {
       if (result.success && result.data?.answer) {
         const addResponse = (window as any).addAIResponse;
         if (addResponse) {
-          const title = endpoint === 'chat' ? 'AI Generated Key Results' :
+          const title = endpoint === 'okr' ? 'AI Generated Key Results' :
                        endpoint === 'weekly-plan' ? 'Weekly Plan Generation' :
-                       'Daily Plan Generation';
-          addResponse(endpoint as 'chat' | 'weekly-plan' | 'daily-plan', title, result.data.answer, 0.9);
+                       endpoint === 'daily-plan' ? 'Daily Plan Generation' :
+                       'Copilot Response';
+          addResponse(endpoint as 'okr' | 'weekly-plan' | 'daily-plan' | 'copilot', title, result.data.answer, 0.9);
         }
       }
       
@@ -75,11 +87,10 @@ export function BackendTest() {
     }
   };
 
-  const testChatEndpoint = async () => {
+  const testOKREndpoint = async () => {
     setIsLoading(true);
-    await runTest('chat', {
-      query: testInputs.objective,
-      top_k: 5,
+    await runTest('okr', {
+      objective: testInputs.objective,
     });
     setIsLoading(false);
   };
@@ -88,7 +99,6 @@ export function BackendTest() {
     setIsLoading(true);
     await runTest('weekly-plan', {
       key_result: testInputs.keyResult,
-      top_k: 5,
     });
     setIsLoading(false);
   };
@@ -96,19 +106,28 @@ export function BackendTest() {
   const testDailyPlanEndpoint = async () => {
     setIsLoading(true);
     await runTest('daily-plan', {
-      annual_key_result: testInputs.annualKeyResult,
-      top_k: 5,
+      weekly_plan: testInputs.weeklyPlan,
+    });
+    setIsLoading(false);
+  };
+
+  const testCopilotEndpoint = async () => {
+    setIsLoading(true);
+    await runTest('copilot', {
+      query: 'How to create effective OKRs?',
     });
     setIsLoading(false);
   };
 
   const testAllEndpoints = async () => {
     setIsLoading(true);
-    await testChatEndpoint();
+    await testOKREndpoint();
     await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between tests
     await testWeeklyPlanEndpoint();
     await new Promise(resolve => setTimeout(resolve, 1000));
     await testDailyPlanEndpoint();
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await testCopilotEndpoint();
     setIsLoading(false);
   };
 
@@ -136,16 +155,16 @@ export function BackendTest() {
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Test Inputs */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Objective (for /chat)</label>
+            <label className="text-sm font-medium">Objective (for /okr)</label>
             <Input
               value={testInputs.objective}
               onChange={(e) => setTestInputs(prev => ({ ...prev, objective: e.target.value }))}
               placeholder="Enter objective..."
             />
-            <Button onClick={testChatEndpoint} disabled={isLoading} size="sm" className="w-full">
-              Test /chat
+            <Button onClick={testOKREndpoint} disabled={isLoading} size="sm" className="w-full">
+              Test /okr
             </Button>
           </div>
           
@@ -162,14 +181,26 @@ export function BackendTest() {
           </div>
           
           <div className="space-y-2">
-            <label className="text-sm font-medium">Annual Key Result (for /daily-plan)</label>
+            <label className="text-sm font-medium">Weekly Plan (for /daily-plan)</label>
             <Input
-              value={testInputs.annualKeyResult}
-              onChange={(e) => setTestInputs(prev => ({ ...prev, annualKeyResult: e.target.value }))}
-              placeholder="Enter annual key result..."
+              value={testInputs.weeklyPlan}
+              onChange={(e) => setTestInputs(prev => ({ ...prev, weeklyPlan: e.target.value }))}
+              placeholder="Enter weekly plan..."
             />
             <Button onClick={testDailyPlanEndpoint} disabled={isLoading} size="sm" className="w-full">
               Test /daily-plan
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Copilot Query</label>
+            <Input
+              value="How to create OKRs?"
+              disabled
+              placeholder="Ask a question..."
+            />
+            <Button onClick={testCopilotEndpoint} disabled={isLoading} size="sm" className="w-full">
+              Test /copilot
             </Button>
           </div>
         </div>
@@ -203,7 +234,7 @@ export function BackendTest() {
                       {result.data?.answer && (
                         <AIResponseDisplay 
                           response={result.data.answer}
-                          type={result.endpoint as 'chat' | 'weekly-plan' | 'daily-plan'}
+                          type={result.endpoint as 'okr' | 'weekly-plan' | 'daily-plan' | 'copilot'}
                           title={`${result.endpoint.toUpperCase()} Response`}
                           confidence={0.9}
                         />
@@ -223,8 +254,8 @@ export function BackendTest() {
 
         {/* Backend URL Info */}
         <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
-          <p><strong>Backend URL:</strong>  http://172.20.30.72 (direct connection)</p>
-          <p><strong>Endpoints:</strong> /chat, /weekly-plan, /daily-plan</p>
+          <p><strong>Backend URL:</strong> https://selamnew-ai.ienetworks.co</p>
+          <p><strong>Endpoints:</strong> /okr, /weekly-plan, /daily-plan, /copilot</p>
           <p><strong>Expected Response Format:</strong></p>
           <ul className="list-disc list-inside ml-4 space-y-1">
             <li>

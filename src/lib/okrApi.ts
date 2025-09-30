@@ -415,13 +415,13 @@ export type OkrSuggestResponse = {
   error?: string;
 };
 
-// 🚀 Backend API integration (forced to 139.185.33.139)
+// 🚀 Backend API integration using /okr endpoint
 export async function generateKeyResults(objective: string): Promise<OkrSuggestResponse> {
   try {
-    const resp = await fetch(`/api/chat`, {
+    const resp = await fetch(`/api/backend/okr`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: objective }),
+      body: JSON.stringify({ objective }),
     });
 
     if (!resp.ok) {
@@ -437,13 +437,13 @@ export async function generateKeyResults(objective: string): Promise<OkrSuggestR
   }
 }
 
-// 🔄 Unified entry point (backend only)
+// 🔄 Unified entry point using /copilot endpoint
 export async function askOkrModel({ prompt, context, params }: OkrSuggestParams): Promise<OkrSuggestResponse> {
   try {
-    const resp = await fetch(`/api/chat`, {
+    const resp = await fetch(`/api/backend/copilot`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: prompt, context, params }),
+      body: JSON.stringify({ query: prompt }),
     });
 
     if (!resp.ok) {
@@ -458,12 +458,11 @@ export async function askOkrModel({ prompt, context, params }: OkrSuggestParams)
   }
 }
 
-// ✅ New helpers that call backend without free-form prompts
+// ✅ Generate weekly tasks from Key Result using /weekly-plan endpoint
 export async function generateWeeklyTasksFromKR(keyResultId: string) {
-  const resp = await fetch(`/api/weekly-plan`, {
+  const resp = await fetch(`/api/backend/weekly-plan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    // Backend expects a string; we'll send the selected KR identifier directly
     body: JSON.stringify({ key_result: keyResultId }),
   });
   if (!resp.ok) {
@@ -480,12 +479,12 @@ export async function generateWeeklyTasksFromKR(keyResultId: string) {
 }));
 }
 
+// ✅ Generate daily tasks from Weekly Plan using /daily-plan endpoint
 export async function generateDailyTasksFromWeekly(weeklyPlanIdOrKR: string) {
-  const resp = await fetch(`/api/daily-plan`, {
+  const resp = await fetch(`/api/backend/daily-plan`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    // Backend currently takes 'annual_key_result' string; we pass selected ID
-    body: JSON.stringify({ annual_key_result: weeklyPlanIdOrKR }),
+    body: JSON.stringify({ weekly_plan: weeklyPlanIdOrKR }),
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');

@@ -238,12 +238,11 @@ class AIService {
     return Math.min(confidence, 1.0);
   }
 
-  // OKR Generation using /chat endpoint for key results
+  // OKR Generation using /okr endpoint for key results
   async generateOKR(request: OKRGenerationRequest): Promise<AIResponse> {
-    // Use /chat endpoint for key results generation (matches your Streamlit example)
-    const response = await this.makeRequest('chat', {
-      query: request.objective,
-      top_k: 5,
+    // Use /okr endpoint for key results generation - only send objective string
+    const response = await this.makeRequest('okr', {
+      objective: request.objective,
     });
 
     if (response.success) {
@@ -320,7 +319,7 @@ class AIService {
     return basePrompt;
   }
 
-  // Task Generation using specific endpoints (matches your Streamlit example)
+  // Task Generation using specific endpoints (matches SelamNew AI API)
   async generateTasks(request: TaskGenerationRequest): Promise<AIResponse> {
     let endpoint: string;
     let payload: any;
@@ -329,13 +328,11 @@ class AIService {
       endpoint = 'weekly-plan';
       payload = {
         key_result: request.keyResult,
-        top_k: 5,
       };
     } else if (request.planType === 'daily') {
       endpoint = 'daily-plan';
       payload = {
-        annual_key_result: request.keyResult,
-        top_k: 5,
+        weekly_plan: request.keyResult,
       };
     } else {
       throw new Error(`Unsupported plan type: ${request.planType}`);
@@ -382,10 +379,9 @@ class AIService {
 
   // Enhanced Chat Response
   async generateChatResponse(message: string, context: any = {}): Promise<AIResponse> {
-    // Use /chat endpoint for general chat responses (matches your Streamlit example)
-    const response = await this.makeRequest('chat', {
+    // Use /copilot endpoint for general chat responses (matches SelamNew AI API)
+    const response = await this.makeRequest('copilot', {
       query: message,
-      top_k: 5,
     });
 
     return response;
@@ -482,7 +478,6 @@ class AIService {
     const query = userQuestion || "What is OKR?";
     const response = await this.makeRequest('copilot', {
       query: query,
-      top_k: 5,
     });
 
     if (response.success) {
@@ -570,9 +565,8 @@ class AIService {
     
     Provide 3-5 actionable suggestions for improving OKR performance or next steps.`;
     
-    return this.makeRequest('chat', {
+    return this.makeRequest('copilot', {
       query: prompt,
-      top_k: 5,
     });
   }
 }

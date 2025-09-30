@@ -42,7 +42,7 @@ interface AIResponse {
 
 interface AIResponseDisplayProps {
   response: AIResponse;
-  type: 'chat' | 'weekly-plan' | 'daily-plan';
+  type: 'okr' | 'weekly-plan' | 'daily-plan' | 'copilot' | 'chat';
   title: string;
   confidence?: number;
 }
@@ -52,12 +52,15 @@ export function AIResponseDisplay({ response, type, title, confidence = 0.8 }: A
 
   const getTypeIcon = () => {
     switch (type) {
+      case 'okr':
       case 'chat':
         return <Target className="w-5 h-5" />;
       case 'weekly-plan':
         return <Clock className="w-5 h-5" />;
       case 'daily-plan':
         return <CheckCircle className="w-5 h-5" />;
+      case 'copilot':
+        return <Sparkles className="w-5 h-5" />;
       default:
         return <Sparkles className="w-5 h-5" />;
     }
@@ -65,12 +68,15 @@ export function AIResponseDisplay({ response, type, title, confidence = 0.8 }: A
 
   const getTypeColor = () => {
     switch (type) {
+      case 'okr':
       case 'chat':
         return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'weekly-plan':
         return 'bg-green-100 text-green-800 border-green-200';
       case 'daily-plan':
         return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'copilot':
+        return 'bg-orange-100 text-orange-800 border-orange-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
