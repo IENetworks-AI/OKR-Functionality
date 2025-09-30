@@ -1,10 +1,7 @@
 import { KeyResult, Task, Plan } from '@/types';
 
-// Example user map
-const userMap: Record<string, { name: string; role: string }> = {
-  'e400323a-ea98-4a30-b5ff-5a2150ef326c': { name: 'Mikias A.', role: 'AI and Data Science' },
-  'fa2f0459-fec7-4ed0-b709-9038b3787122': { name: 'Test User', role: 'Engineer' },
-};
+// Dynamic user cache
+const userCache: Record<string, { name: string; role: string; email?: string }> = {};
 
 let authToken: string | null = null;
 let tokenExpiry: number = 0;
@@ -43,6 +40,258 @@ export async function getAuthToken(): Promise<string> {
   } catch (err) {
     console.error('Auth error:', err instanceof Error ? err.message : String(err));
     throw err;
+  }
+}
+
+/* ========================= 👥 USER & KEY RESULTS ========================= */
+
+/**
+ * Fetch user information by user ID
+ */
+export async function fetchUserInfo(userId: string): Promise<{ id: string; name: string; role: string; email?: string }> {
+  // Check cache first
+  if (userCache[userId]) {
+    return { id: userId, ...userCache[userId] };
+  }
+
+  const tenantId = import.meta.env.VITE_TENANT_ID;
+  const baseUrl = import.meta.env.VITE_API_BASE_URL;
+  const token = await getAuthToken();
+
+  try {
+    const url = `${baseUrl}/users/${userId}`;
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        tenantId,
+      },
+    });
+
+    if (resp.ok) {
+      const userData = await resp.json();
+      const userInfo = {
+        name: userData.name || userData.fullName || userData.displayName || 'Unknown User',
+        role: userData.role || userData.position || userData.title || 'Unknown Role',
+        email: userData.email,
+      };
+      userCache[userId] = userInfo;
+      return { id: userId, ...userInfo };
+    } else if (resp.status === 404) {
+      // User endpoint doesn't exist or user not found - use fallback
+      console.warn(`User ${userId} not found, using fallback`);
+    }
+  } catch (err) {
+    console.warn(`Failed to fetch user info for ${userId}:`, err);
+  }
+
+  // Fallback - use a generic name based on the supervisor status
+  const isSupervisor = userId === import.meta.env.VITE_SUPERVISOR_USER_ID;
+  const fallbackInfo = {
+    name: isSupervisor ? 'Supervisor' : 'Team Member',
+    role: isSupervisor ? 'Manager' : 'Employee',
+  };
+  
+  userCache[userId] = fallbackInfo;
+  return { id: userId, ...fallbackInfo };
+}
+
+/**
+ * Fetch user's key results
+ * Endpoint: /key-results?userId={user_id}
+ */
+export async function fetchUserKeyResults(userId: string): Promise<KeyResult[]> {
+  const tenantId = import.meta.env.VITE_TENANT_ID;
+  const baseUrl = import.meta.env.VITE_API_BASE_URL;
+
+  if (!userId || !tenantId || !baseUrl) {
+    throw new Error('Missing userId, tenantId, or baseUrl');
+  }
+
+  const token = await getAuthToken();
+  const url = `${baseUrl}/key-results?userId=${userId}`;
+
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        tenantId,
+        userId,
+      },
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Fetch user KRs failed (${resp.status}): ${text}`);
+    }
+
+    const data = await resp.json();
+    console.log('User Key Results:', data);
+
+    // Handle different response structures
+    let keyResultsArray: any[] = [];
+    
+    if (Array.isArray(data)) {
+      keyResultsArray = data;
+    } else if (data.keyResults?.items && Array.isArray(data.keyResults.items)) {
+      keyResultsArray = data.keyResults.items;
+    } else if (data.keyResults && Array.isArray(data.keyResults)) {
+      keyResultsArray = data.keyResults;
+    } else if (data.items && Array.isArray(data.items)) {
+      keyResultsArray = data.items;
+    } else {
+      keyResultsArray = [];
+    }
+
+    // Map to our KeyResult interface
+    const keyResults: KeyResult[] = await Promise.all(
+      keyResultsArray.map(async (kr: any) => {
+        const ownerId = kr.userId || kr.objective?.userId || userId;
+        const ownerInfo = await fetchUserInfo(ownerId);
+
+        return {
+          id: kr.id || kr.keyResultId,
+          title: kr.title || kr.keyResult || 'Untitled Key Result',
+          owner: ownerInfo,
+          objective: kr.objective?.title || kr.objectiveTitle || 'Untitled Objective',
+        };
+      })
+    );
+
+    return keyResults;
+  } catch (err) {
+    console.error('Error fetching user key results:', err instanceof Error ? err.message : String(err));
+    return [];
+  }
+}
+
+/**
+ * Fetch supervisor's key results
+ * Endpoint: /key-results/user/{supervisor_user_id}
+ */
+export async function fetchSupervisorKeyResults(supervisorUserId: string): Promise<KeyResult[]> {
+  const tenantId = import.meta.env.VITE_TENANT_ID;
+  const baseUrl = import.meta.env.VITE_API_BASE_URL;
+
+  if (!supervisorUserId || !tenantId || !baseUrl) {
+    console.warn('Missing supervisorUserId, tenantId, or baseUrl');
+    return [];
+  }
+
+  const token = await getAuthToken();
+  const url = `${baseUrl}/key-results/user/${supervisorUserId}`;
+
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        tenantId,
+      },
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Fetch supervisor KRs failed (${resp.status}): ${text}`);
+    }
+
+    const data = await resp.json();
+    console.log('🔍 Raw Supervisor Key Results Response:', JSON.stringify(data, null, 2));
+
+    // Handle different response structures
+    let keyResultsArray: any[] = [];
+    
+    if (Array.isArray(data)) {
+      keyResultsArray = data;
+    } else if (data.keyResults?.items && Array.isArray(data.keyResults.items)) {
+      // Response structure: { keyResults: { items: [...] } }
+      keyResultsArray = data.keyResults.items;
+    } else if (data.keyResults && Array.isArray(data.keyResults)) {
+      keyResultsArray = data.keyResults;
+    } else if (data.items && Array.isArray(data.items)) {
+      keyResultsArray = data.items;
+    } else if (data.data && Array.isArray(data.data)) {
+      keyResultsArray = data.data;
+    } else if (typeof data === 'object') {
+      // Maybe it's a single object, wrap it in an array
+      keyResultsArray = [data];
+    }
+
+    console.log('📊 Parsed key results array:', keyResultsArray.length, 'items');
+
+    if (keyResultsArray.length === 0) {
+      console.warn('⚠️ No key results found in response');
+      return [];
+    }
+
+    // Map to our KeyResult interface
+    const keyResults: KeyResult[] = await Promise.all(
+      keyResultsArray.map(async (kr: any, index: number) => {
+        console.log(`Processing KR ${index + 1}:`, kr);
+        
+        const ownerInfo = await fetchUserInfo(supervisorUserId);
+
+        // Try multiple field names for the key result title
+        const title = kr.title || kr.keyResult || kr.name || kr.description || `Key Result ${index + 1}`;
+        const id = kr.id || kr.keyResultId || kr._id || `kr-${supervisorUserId}-${index}`;
+        const objective = kr.objective?.title || kr.objectiveTitle || kr.objective || 'Untitled Objective';
+
+        return {
+          id,
+          title,
+          owner: ownerInfo,
+          objective,
+        };
+      })
+    );
+
+    console.log('✅ Final processed key results:', keyResults.length, 'items');
+    console.log('Titles:', keyResults.map(kr => kr.title));
+
+    return keyResults;
+  } catch (err) {
+    console.error('❌ Error fetching supervisor key results:', err instanceof Error ? err.message : String(err));
+    return [];
+  }
+}
+
+/**
+ * Fetch user's weekly plans
+ * Endpoint: /weekly-plans?userId={user_id}
+ */
+export async function fetchWeeklyPlans(userId: string): Promise<any[]> {
+  const tenantId = import.meta.env.VITE_TENANT_ID;
+  const baseUrl = import.meta.env.VITE_API_BASE_URL;
+
+  if (!userId || !tenantId || !baseUrl) {
+    throw new Error('Missing userId, tenantId, or baseUrl');
+  }
+
+  const token = await getAuthToken();
+  const url = `${baseUrl}/weekly-plans?userId=${userId}`;
+
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        tenantId,
+        userId,
+      },
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      throw new Error(`Fetch weekly plans failed (${resp.status}): ${text}`);
+    }
+
+    const data = await resp.json();
+    console.log('Weekly Plans:', data);
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('Error fetching weekly plans:', err instanceof Error ? err.message : String(err));
+    return [];
   }
 }
 
@@ -90,10 +339,14 @@ export async function fetchPlans(planType: 'Daily' | 'Weekly'): Promise<{
     const planDate = new Date(planInfo.createdAt).toLocaleString('en-US', { timeZone: 'Africa/Nairobi' });
     const planStatus = planInfo.isValidated ? 'Closed' : 'Open';
 
+    // Pre-fetch all unique user IDs
+    const uniqueUserIds = [...new Set(uniqueTasks.map(t => t.keyResult.objective.userId))];
+    await Promise.all(uniqueUserIds.map(id => fetchUserInfo(id)));
+
     uniqueTasks.forEach((apiTask, index) => {
       const krId = apiTask.keyResultId;
       const objUserId = apiTask.keyResult.objective.userId;
-      const userInfo = userMap[objUserId] || { name: 'Unknown', role: 'Unknown' };
+      const userInfo = userCache[objUserId] || { name: 'Unknown', role: 'Unknown' };
 
       const uniqueKrId = `${krId}-${objUserId}-${planType}-${index}`;
       if (!uniqueKeyResults.has(uniqueKrId)) {

@@ -11,6 +11,7 @@ import { CalendarIcon, RefreshCw, X, Plus, Loader2, Sparkles, Edit, Trash2, Save
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { generateAIObjectiveAndKeyResults as genOKR } from "@/lib/okrAi";
+import { fetchSupervisorKeyResults } from "@/lib/okrApi";
 
 interface OKRModalProps {
   open: boolean;
@@ -61,22 +62,41 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<any>(null);
   const [generatingObjectiveId, setGeneratingObjectiveId] = useState<string | null>(null);
+  const [supervisorKeyResults, setSupervisorKeyResults] = useState<string[]>([]);
+  const [loadingSupervisorKRs, setLoadingSupervisorKRs] = useState(false);
 
-  // Supervisor's key results for alignment (hardcoded as per screenshot feasibility)
-  const supervisorKeyResults = [
-    "Identify and Evaluate 6 High-Impact AI Use Cases and define Implementation Roadmap for the 3 Priority Use Cases",
-    "Build and Present AI MVP Implementation Roadmap and get validation from all stakeholders",
-    "Launch and Operationalize Sprint-1 for the First AI MVP",
-    "Finalize 100% product design for AI features in OKR Assistant",
-    "Finalize 100% product design for AI features for SCM enhancement",
-    "Conduct stakeholder session and get validation from the CEO",
-    "Complete 100% of Test Deployment for AI Features in OKR module",
-    "Complete 100% of Test Deployment for AI Features in SCM",
-    "Run Functional and UX Validation with Stakeholders and achieve Minimum 80% of functional and UX test items",
-    "Achieve 6 TNA for AI and Data Engineers",
-    "Attend 6 Sprint meeting, and Conduct 6 Bi-weekly",
-    "Attend 6 Division meeting"
-  ];
+  // Fetch supervisor's key results dynamically
+  useEffect(() => {
+    const loadSupervisorKeyResults = async () => {
+      const supervisorUserId = import.meta.env.VITE_SUPERVISOR_USER_ID;
+      
+      if (!supervisorUserId) {
+        console.warn('⚠️ No VITE_SUPERVISOR_USER_ID configured');
+        return;
+      }
+
+      console.log('🔄 Loading supervisor key results for:', supervisorUserId);
+      setLoadingSupervisorKRs(true);
+      try {
+        const keyResults = await fetchSupervisorKeyResults(supervisorUserId);
+        console.log('📦 Received key results:', keyResults);
+        
+        const titles = keyResults.map(kr => kr.title);
+        console.log('📝 Extracted titles:', titles);
+        
+        setSupervisorKeyResults(titles);
+        console.log('✅ Loaded supervisor key results count:', titles.length);
+      } catch (err) {
+        console.error('❌ Failed to load supervisor key results:', err);
+      } finally {
+        setLoadingSupervisorKRs(false);
+      }
+    };
+
+    if (open) {
+      loadSupervisorKeyResults();
+    }
+  }, [open]);
 
   useEffect(() => {
     if (open && existingOKR) {
@@ -374,14 +394,30 @@ export function OKRModal({ open, onOpenChange, onSave, existingOKR }: OKRModalPr
             <Label htmlFor="alignment">Select Alignment to Generate Objective</Label>
             <Select onValueChange={handleAlignmentChange}>
               <SelectTrigger>
-                <SelectValue placeholder="Select supervisor's key result" />
+                <SelectValue placeholder={loadingSupervisorKRs ? "Loading..." : supervisorKeyResults.length > 0 ? "Select supervisor's key result" : "No key results available"} />
               </SelectTrigger>
               <SelectContent>
-                {supervisorKeyResults.map((keyResult) => (
-                  <SelectItem key={keyResult} value={keyResult}>{keyResult}</SelectItem>
-                ))}
+                {loadingSupervisorKRs ? (
+                  <SelectItem value="loading" disabled>
+                    <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                    Loading...
+                  </SelectItem>
+                ) : supervisorKeyResults.length === 0 ? (
+                  <SelectItem value="none" disabled>No key results found</SelectItem>
+                ) : (
+                  supervisorKeyResults.map((keyResult, index) => (
+                    <SelectItem key={`${keyResult}-${index}`} value={keyResult}>
+                      {keyResult}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
+            {supervisorKeyResults.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {supervisorKeyResults.length} key result{supervisorKeyResults.length !== 1 ? 's' : ''} available
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-between">
