@@ -27,7 +27,16 @@ export function BackendTest() {
   const runTest = async (endpoint: string, payload: any) => {
     const startTime = Date.now();
     try {
-      const response = await aiService.makeRequest(endpoint, payload);
+      let response: any;
+      if (endpoint === 'chat') {
+        response = await aiService.generateChat(payload.query, payload.top_k);
+      } else if (endpoint === 'weekly-plan') {
+        response = await aiService.generateWeeklyPlan(payload.key_result, payload.top_k);
+      } else if (endpoint === 'daily-plan') {
+        response = await aiService.generateDailyPlan(payload.annual_key_result, payload.top_k);
+      } else {
+        throw new Error(`Unknown endpoint: ${endpoint}`);
+      }
       const duration = Date.now() - startTime;
       
       const result: TestResult = {
@@ -214,7 +223,7 @@ export function BackendTest() {
 
         {/* Backend URL Info */}
         <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
-          <p><strong>Backend URL:</strong> http://172.20.30.72 (direct connection)</p>
+          <p><strong>Backend URL:</strong>  http://172.20.30.72 (direct connection)</p>
           <p><strong>Endpoints:</strong> /chat, /weekly-plan, /daily-plan</p>
           <p><strong>Expected Response Format:</strong></p>
           <ul className="list-disc list-inside ml-4 space-y-1">

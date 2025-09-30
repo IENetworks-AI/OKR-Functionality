@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
         rewrite: (path) => path.replace(/^\/api\/okr-suggest/, "/.netlify/functions/okr-suggest"),
       },
       "/api/backend": {
-        target: "http://172.20.30.72",
+        target: "https://selamnew-ai.ienetworks.co/",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/backend/, ""),
       },

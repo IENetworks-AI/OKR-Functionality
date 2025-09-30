@@ -457,6 +457,103 @@ class AIService {
     return suggestions;
   }
 
+  private extractOKRExplanationSuggestions(data: any): string[] {
+    if (!data?.answer) return [];
+    
+    const answer = data.answer;
+    const suggestions: string[] = [];
+    
+    // Extract key concepts from the OKR explanation
+    const okrConcepts = [
+      "What are Objectives and Key Results?",
+      "How to set effective OKRs?",
+      "OKR scoring and measurement",
+      "OKR best practices",
+      "How to align team OKRs?",
+      "OKR examples and templates"
+    ];
+    
+    // Return relevant suggestions based on the explanation content
+    return okrConcepts.slice(0, 4);
+  }
+
+  // OKR Explanation using /copilot endpoint
+  async getOKRExplanation(userQuestion?: string): Promise<AIResponse> {
+    const query = userQuestion || "What is OKR?";
+    const response = await this.makeRequest('copilot', {
+      query: query,
+      top_k: 5,
+    });
+
+    if (response.success) {
+      // Format the response for conversational display
+      response.data = this.formatCopilotResponse(response.data);
+      response.suggestions = this.extractOKRExplanationSuggestions(response.data);
+    }
+
+    return response;
+  }
+
+  // Format /copilot endpoint response for conversational display
+  private formatCopilotResponse(data: any): { answer: string } {
+    if (!data) {
+      return { 
+        answer: "I'm here to help you understand OKRs! Could you please ask me a specific question about OKRs?" 
+      };
+    }
+
+    // If it's already a string, return it
+    if (typeof data === 'string') {
+      return { answer: data };
+    }
+
+    // If it's an object, extract and format the answer
+    if (typeof data === 'object') {
+      // Check for nested answer property
+      if (data.answer && typeof data.answer === 'string') {
+        return { answer: data.answer };
+      }
+
+      // If it has the structure from your provided response
+      if (data.answer && typeof data.answer === 'object') {
+        const answerObj = data.answer;
+        let formatted = "**OKR Guide** 🎯\n\n";
+        
+        // Add the main explanation
+        if (answerObj.answer) {
+          formatted += answerObj.answer + "\n\n";
+        }
+
+        // Add any additional structured content
+        if (answerObj['Key Results'] && Array.isArray(answerObj['Key Results'])) {
+          formatted += "**Key Components:**\n";
+          answerObj['Key Results'].forEach((item, index) => {
+            if (item.title) {
+              formatted += `${index + 1}. **${item.title}**\n`;
+              if (item.description) {
+                formatted += `   ${item.description}\n`;
+              }
+            }
+          });
+        }
+
+        return { answer: formatted };
+      }
+
+      // For other object structures, create a conversational response
+      return { 
+        answer: "I'd be happy to help you with OKRs! Here's what I can assist you with:\n\n" +
+                "• Understanding what OKRs are and how they work\n" +
+                "• Setting effective objectives and key results\n" +
+                "• OKR scoring and measurement techniques\n" +
+                "• Best practices for OKR implementation\n\n" +
+                "What specific aspect of OKRs would you like to learn about?"
+      };
+    }
+
+    return { answer: String(data) };
+  }
+
   // Auto-suggestion based on context
   async getAutoSuggestions(context: {
     currentObjective?: string;
