@@ -34,67 +34,110 @@ export function ChatBot() {
     }
   }, [isOpen, currentPath]);
 
-  const loadAutoSuggestions = async () => {
-    try {
-      const context = {
-        currentPath,
-        userRole: 'employee',
-        department: 'general',
-      };
+// ... existing imports ...
+
+const handleSendMessage = async () => {
+  if (!inputValue.trim()) return;
+  
+  const userMessage: Message = { 
+    id: Date.now().toString(),
+    text: inputValue, 
+    isUser: true,
+    timestamp: new Date()
+  };
+  setMessages(prev => [...prev, userMessage]);
+  setInputValue("");
+  setIsLoading(true);
+
+  try {
+    // 🔥 ALWAYS use /copilot endpoint for chatbot queries
+    const response = await aiService.getOKRExplanation(inputValue); // This uses /copilot internally
+
+    // Helper: format any response as clean text
+    const formatAsText = (data: any): string => {
+      if (!data) return "I'm here to help with your OKR questions!";
       
-      const response = await aiService.getAutoSuggestions(context);
-      if (response.success && response.suggestions) {
-        setAutoSuggestions(response.suggestions);
+      // If it's a string, return it
+      if (typeof data === 'string') return data.trim();
+      
+      // If it's an object, try to extract natural language
+      if (typeof data === 'object') {
+        // Priority: look for 'answer' field
+        if (data.answer && typeof data.answer === 'string') {
+          return data.answer.trim();
+        }
+        // Handle legacy Key Results structure
+        if (data['Key Results'] && Array.isArray(data['Key Results'])) {
+          let text = "Here's what I know about OKRs:\n\n";
+          data['Key Results'].forEach((kr: any, i: number) => {
+            const title = kr.title || kr.description || `Key Result ${i + 1}`;
+            text += `• ${title}\n`;
+          });
+          return text;
+        }
+        // Fallback: stringify cleanly
+        try {
+          return JSON.stringify(data, null, 2)
+            .replace(/"/g, '')
+            .replace(/{|}/g, '')
+            .replace(/,/g, '\n')
+            .trim();
+        } catch {
+          return "I received a response, but couldn't format it clearly. Can you rephrase your question?";
+        }
       }
-    } catch (error) {
-      console.error('Failed to load auto-suggestions:', error);
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!inputValue.trim()) return;
-    
-    const userMessage: Message = { 
-      id: Date.now().toString(),
-      text: inputValue, 
-      isUser: true,
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, userMessage]);
-    setInputValue("");
-    setIsLoading(true);
-
-    try {
-      const context = {
-        previousMessages: messages.map(m => m.text),
-        currentPath,
-        userRole: 'employee',
-      };
       
-      const response = await aiService.generateChatResponse(inputValue, context);
+      return String(data);
+    };
 
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: response.success ? (response.data?.answer || response.data?.suggestion || "I'm here to help with your OKR questions!") : `Error: ${response.error}`,
-        isUser: false,
-        timestamp: new Date(),
-        suggestions: response.suggestions,
-        confidence: response.confidence,
-      };
+    const aiMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      text: response.success 
+        ? formatAsText(response.data) 
+        : `Sorry, I couldn't process that: ${response.error || 'Unknown error'}`,
+      isUser: false,
+      timestamp: new Date(),
+      suggestions: response.suggestions,
+      confidence: response.confidence,
+    };
 
-      setMessages(prev => [...prev, aiMessage]);
-    } catch (err) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: "I'm having trouble connecting right now. Please try again in a moment.",
-        isUser: false,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
+    setMessages(prev => [...prev, aiMessage]);
+  } catch (err) {
+    const errorMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      text: "I'm having trouble connecting right now. Please try again in a moment.",
+      isUser: false,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, errorMessage]);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+// Also update auto-suggestions to use /copilot
+const loadAutoSuggestions = async () => {
+  try {
+    // Use /copilot for initial greeting suggestions
+    const response = await aiService.getOKRExplanation("What are the main OKR concepts I should know?");
+    if (response.success && response.suggestions) {
+      setAutoSuggestions(response.suggestions);
+    } else {
+      setAutoSuggestions([
+        "What is OKR?",
+        "How to set effective OKRs?",
+        "OKR scoring and measurement"
+      ]);
     }
-  };
+  } catch (error) {
+    console.error('Failed to load auto-suggestions:', error);
+    setAutoSuggestions([
+      "What is OKR?",
+      "How to set effective OKRs?",
+      "OKR best practices"
+    ]);
+  }
+};
 
   const handleSuggestionClick = (suggestion: string) => {
     setInputValue(suggestion);

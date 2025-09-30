@@ -46,7 +46,7 @@ app.post('/.netlify/functions/okr-suggest', async (req, res) => {
     }
 
     // Hit the same backend as production function
-    const apiUrl = 'https://172.20.30.72/chat';
+    const apiUrl = 'https://selamnew-ai.ienetworks.co/chat';
     const upstream = await fetch(apiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -140,7 +140,7 @@ app.use('/.netlify/functions/backend-proxy', async (req, res) => {
     const endpoint = req.path.replace('/.netlify/functions/backend-proxy', '');
     
     // Backend server URL
-    const backendUrl = 'http://172.20.30.72';
+    const backendUrl = 'https://selamnew-ai.ienetworks.co';
     const targetUrl = `${backendUrl}${endpoint}`;
     
     console.log(`Proxying ${method} request to: ${targetUrl}`);
@@ -171,6 +171,51 @@ app.use('/.netlify/functions/backend-proxy', async (req, res) => {
     console.error('Backend proxy error:', error);
     res.status(500).json({
       error: 'Backend proxy error',
+      message: error.message,
+    });
+  }
+});
+
+// API proxy for development (matches Vite config)
+app.use('/api/backend', async (req, res) => {
+  try {
+    const { method, body } = req;
+    
+    // Extract the endpoint from the path (remove /api/backend prefix)
+    const endpoint = req.path.replace('/api/backend', '');
+    
+    // Backend server URL
+    const backendUrl = 'https://selamnew-ai.ienetworks.co/';
+    const targetUrl = `${backendUrl}${endpoint}`;
+    
+    console.log(`API Proxying ${method} request to: ${targetUrl}`);
+    
+    // Prepare headers for the backend request
+    const backendHeaders = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Forward the request to the backend
+    const response = await fetch(targetUrl, {
+      method: method,
+      headers: backendHeaders,
+      body: method !== 'GET' ? JSON.stringify(body) : undefined,
+    });
+    
+    const responseText = await response.text();
+    let responseData;
+    
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (e) {
+      responseData = { error: 'Invalid JSON response', raw: responseText };
+    }
+    
+    res.json(responseData);
+  } catch (error) {
+    console.error('API proxy error:', error);
+    res.status(500).json({
+      error: 'API proxy error',
       message: error.message,
     });
   }

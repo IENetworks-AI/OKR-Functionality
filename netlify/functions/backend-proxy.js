@@ -20,7 +20,7 @@ export const handler = async (event, context) => {
     const endpoint = path.replace('/.netlify/functions/backend-proxy', '');
     
     // Backend server URL
-    const backendUrl = 'http://172.20.30.72';
+    const backendUrl = 'https://selamnew-ai.ienetworks.co/';
     const targetUrl = `${backendUrl}${endpoint}`;
     
     console.log(`Proxying ${httpMethod} request to: ${targetUrl}`);
