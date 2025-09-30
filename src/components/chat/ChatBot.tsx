@@ -27,12 +27,12 @@ export function ChatBot() {
   const [autoSuggestions, setAutoSuggestions] = useState<string[]>([]);
   const { currentPath } = useNavigation();
 
-  // Auto-suggestions based on current context
+  // Auto-suggestions based on current context (only load once when modal opens)
   useEffect(() => {
     if (isOpen && messages.length === 0) {
       loadAutoSuggestions();
     }
-  }, [isOpen, currentPath]);
+  }, [isOpen]); // Removed currentPath to prevent duplicate calls
 
 // ... existing imports ...
 
@@ -115,28 +115,15 @@ const handleSendMessage = async () => {
   }
 };
 
-// Also update auto-suggestions to use /copilot
-const loadAutoSuggestions = async () => {
-  try {
-    // Use /copilot for initial greeting suggestions
-    const response = await aiService.getOKRExplanation("What are the main OKR concepts I should know?");
-    if (response.success && response.suggestions) {
-      setAutoSuggestions(response.suggestions);
-    } else {
-      setAutoSuggestions([
-        "What is OKR?",
-        "How to set effective OKRs?",
-        "OKR scoring and measurement"
-      ]);
-    }
-  } catch (error) {
-    console.error('Failed to load auto-suggestions:', error);
-    setAutoSuggestions([
-      "What is OKR?",
-      "How to set effective OKRs?",
-      "OKR best practices"
-    ]);
-  }
+// Load static auto-suggestions (no API call)
+const loadAutoSuggestions = () => {
+  setAutoSuggestions([
+    "What is OKR?",
+    "How to set effective OKRs?",
+    "OKR scoring and measurement",
+    "How to align team OKRs?",
+    "OKR best practices"
+  ]);
 };
 
   const handleSuggestionClick = (suggestion: string) => {

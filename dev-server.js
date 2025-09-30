@@ -184,8 +184,8 @@ app.use('/api/backend', async (req, res) => {
     // Extract the endpoint from the path (remove /api/backend prefix)
     const endpoint = req.path.replace('/api/backend', '');
     
-    // Backend server URL
-    const backendUrl = 'https://selamnew-ai.ienetworks.co/';
+    // Backend server URL (removed trailing slash to avoid double-slash issue)
+    const backendUrl = 'https://selamnew-ai.ienetworks.co';
     const targetUrl = `${backendUrl}${endpoint}`;
     
     console.log(`API Proxying ${method} request to: ${targetUrl}`);

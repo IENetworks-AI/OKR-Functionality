@@ -19,8 +19,8 @@ export const handler = async (event, context) => {
     // Extract the endpoint from the path (remove /backend-proxy prefix)
     const endpoint = path.replace('/.netlify/functions/backend-proxy', '');
     
-    // Backend server URL
-    const backendUrl = 'https://selamnew-ai.ienetworks.co/';
+    // Backend server URL (removed trailing slash to avoid double-slash issue)
+    const backendUrl = 'https://selamnew-ai.ienetworks.co';
     const targetUrl = `${backendUrl}${endpoint}`;
     
     console.log(`Proxying ${httpMethod} request to: ${targetUrl}`);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 
 import { KeyResult, WeeklyPlan, Task } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { generateWeeklyTasksFromKR, generateDailyTasksFromWeekly } from "@/lib/okrApi";
+import { generateWeeklyTasksFromKR, generateDailyTasksFromWeekly, askOkrModel } from "@/lib/okrApi";
 import { generateAITasks } from "@/lib/okrAi";
 
 // UUID fallback generator
@@ -51,6 +51,11 @@ export function CreatePlanModal({
   const [isGeneratingFromWeekly, setIsGeneratingFromWeekly] = useState(false);
   const [refinements, setRefinements] = useState<{ [id: string]: string }>({});
   const { toast } = useToast();
+  
+  // Refs to prevent duplicate API calls
+  const isGeneratingRef = useRef(false);
+  const lastSelectedKeyResultIdRef = useRef<string>('');
+  const lastSelectedWeeklyPlanIdRef = useRef<string>('');
 
   // Validate keyResults to prevent empty IDs
   useEffect(() => {
@@ -84,11 +89,17 @@ export function CreatePlanModal({
   }, [availableWeeklyPlans, toast]);
 
   // Generate tasks from selected Key Result title via backend (simplified)
-  const generateAiTasks = async () => {
-    if (!selectedKeyResultId) {
-      setTasks([]);
+  const generateAiTasks = useCallback(async () => {
+    // Prevent duplicate calls: check if already generating or if same selection
+    if (!selectedKeyResultId || 
+        isGeneratingRef.current || 
+        lastSelectedKeyResultIdRef.current === selectedKeyResultId) {
+      if (!selectedKeyResultId) setTasks([]);
       return;
     }
+    
+    isGeneratingRef.current = true;
+    lastSelectedKeyResultIdRef.current = selectedKeyResultId;
     setIsGenerating(true);
 
     try {
@@ -141,15 +152,22 @@ export function CreatePlanModal({
       });
     } finally {
       setIsGenerating(false);
+      isGeneratingRef.current = false;
     }
-  };
+  }, [selectedKeyResultId, keyResults, toast]);
 
   // AI generate daily tasks from Weekly Plan task titles (simplified)
-  const generateDailyTasksFromWeeklyPlan = async () => {
-    if (!selectedWeeklyPlanId) {
-      setTasks([]);
+  const generateDailyTasksFromWeeklyPlan = useCallback(async () => {
+    // Prevent duplicate calls: check if already generating or if same selection
+    if (!selectedWeeklyPlanId || 
+        isGeneratingRef.current || 
+        lastSelectedWeeklyPlanIdRef.current === selectedWeeklyPlanId) {
+      if (!selectedWeeklyPlanId) setTasks([]);
       return;
     }
+    
+    isGeneratingRef.current = true;
+    lastSelectedWeeklyPlanIdRef.current = selectedWeeklyPlanId;
     setIsGeneratingFromWeekly(true);
 
     try {
@@ -205,8 +223,9 @@ export function CreatePlanModal({
       });
     } finally {
       setIsGeneratingFromWeekly(false);
+      isGeneratingRef.current = false;
     }
-  };
+  }, [selectedWeeklyPlanId, availableWeeklyPlans, toast]);
 
   // Regenerate single task
   const handleRegenerateTask = async (id: string, refinement: string) => {
@@ -279,7 +298,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
     }
   };
 
-  // Trigger task generation when selections change
+  // Trigger task generation when selections change (with proper dependencies)
   useEffect(() => {
     if (planType === 'Weekly' && selectedKeyResultId) {
       generateAiTasks();
@@ -288,7 +307,7 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
     } else {
       setTasks([]);
     }
-  }, [selectedKeyResultId, selectedWeeklyPlanId, planType]);
+  }, [selectedKeyResultId, selectedWeeklyPlanId, planType, generateAiTasks, generateDailyTasksFromWeeklyPlan]);
 
   const addTask = () =>
     setTasks([
@@ -329,6 +348,10 @@ Ensure all fields are provided. The task must have a unique, non-empty title and
     setIsGenerating(false);
     setIsGeneratingFromWeekly(false);
     setRefinements({});
+    // Reset refs on close
+    lastSelectedKeyResultIdRef.current = '';
+    lastSelectedWeeklyPlanIdRef.current = '';
+    isGeneratingRef.current = false;
     onClose();
   };
 
